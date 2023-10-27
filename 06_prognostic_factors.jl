@@ -298,7 +298,8 @@ plotgrid!(
 
 # Finally, when we don't have the luxury of just increasing the size of our population to
 # 1000, there's still one more thing one can do to improve what we can get out of the 50
-# patients we trained on. We can jointly fit everything.
+# patients we trained on. We can jointly fit everything. For large models this may be
+# computationally intense, but for this model we should be fine.
 
 fpm_deep = fit(
   augmented_fpm.model,
