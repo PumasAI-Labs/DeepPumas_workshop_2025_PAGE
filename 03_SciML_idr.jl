@@ -105,8 +105,8 @@ data_b = synthetic_data(
 plotgrid(data_a; data=(; label="Data (subject A)"))
 plotgrid!(data_b; data=(; label="Data (subject B)"), color=:gray)
 
-pred_datamodel_a = predict(data_model, data_a, true_parameters; obstimes=0:0.01:10)
-pred_datamodel_b = predict(data_model, data_b, true_parameters; obstimes=0:0.01:10)
+pred_datamodel_a = predict(data_model, data_a, true_parameters; obstimes=0:0.01:15)
+pred_datamodel_b = predict(data_model, data_b, true_parameters; obstimes=0:0.01:15)
 plotgrid(pred_datamodel_a; ipred=false)
 plotgrid!(pred_datamodel_b; data=true, ipred=false)
 
