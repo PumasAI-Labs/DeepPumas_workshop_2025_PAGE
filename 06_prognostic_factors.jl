@@ -1,6 +1,5 @@
 using DeepPumas
 using StableRNGs
-using PumasUtilities
 using CairoMakie
 using Serialization
 using Latexify
