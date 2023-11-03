@@ -1,7 +1,7 @@
 using DeepPumas
 using CairoMakie
 using StableRNGs
-set_theme!(deep_dark())
+set_theme!(deep_light())
 
 # 
 # TABLE OF CONTENTS
@@ -13,10 +13,12 @@ set_theme!(deep_dark())
 # 
 # 2. IDENTIFICATION OF MODEL DYNAMICS USING NEURAL NETWORKS
 #
-# 2.1. Delegate the identification of dynamics to a neural network
-# 2.2. Combine existing domain knowledge and a neural network
-# 2.3. Extend the analysis to a population of multiple subjects
-# 2.4. Analyse the effect of very sparse data on the predictions
+# 2.1. Identify the dynamics with a NeuralODE
+# 2.2. Identify only the PD using a universal differential equation (UDE)
+# 2.3. Improve the UDE model by encoding more domain knowledge
+# 2.4. Extend the analysis to a population of multiple subjects
+# 2.5. Use a UDE model on sparse timecourses from multiple patients
+# 2.6. Use a UDE model on rich timecourses from multiple patients
 #
 
 # 
@@ -84,7 +86,7 @@ true_parameters = (;
 # 1.1. Simulate subjects A and B with different dosage regimens
 data_a = synthetic_data(
   data_model,
-  DosageRegimen(1.0),
+  DosageRegimen(1.0, addl=1, ii=5),
   true_parameters;
   nsubj=1,
   obstimes=0:0.5:15,
@@ -93,10 +95,10 @@ data_a = synthetic_data(
 
 data_b = synthetic_data(
   data_model,
-  DosageRegimen(0.2),
+  DosageRegimen(0.2, addl=1, ii=5),
   true_parameters;
   nsubj=1,
-  obstimes=0:0.5:10,
+  obstimes=0:0.5:15,
   rng=StableRNG(2)
 )
 
@@ -137,7 +139,7 @@ data_b_no_dose = read_pumas(DataFrame(data_b); observations=[:Outcome], event_da
 
 fpm_time = fit(time_model, data_a_no_dose, init_params(time_model), MAP(NaivePooled()))
 
-pred_a = predict(fpm_time; obstimes=0:0.1:10);
+pred_a = predict(fpm_time; obstimes=0:0.1:15);
 plotgrid(
   pred_a;
   pred=(; label="Pred (subject A)"),
@@ -145,7 +147,7 @@ plotgrid(
   ipred=false
 )
 
-pred_b = predict(time_model, data_b_no_dose, coef(fpm_time); obstimes=0:0.1:10);
+pred_b = predict(time_model, data_b_no_dose, coef(fpm_time); obstimes=0:0.1:15);
 plotgrid!(
   pred_b,
   pred=(; label="Pred (subject B)", color=:red),
@@ -156,16 +158,19 @@ plotgrid!(
 # 
 # 2. IDENTIFICATION OF MODEL DYNAMICS USING NEURAL NETWORKS
 #
-# 2.1. Delegate the identification of dynamics to a neural network
-# 2.2. Combine existing domain knowledge and a neural network
-# 2.3. Extend the analysis to a population of multiple subjects
-# 2.4. Analyse the effect of very sparse data on the predictions
+# 2.1. Identify the dynamics with a NeuralODE
+# 2.2. Identify only the PD using a universal differential equation (UDE)
+# 2.3. Improve the UDE model by encoding more domain knowledge
+# 2.4. Extend the analysis to a population of multiple subjects
+# 2.5. Use a UDE model on sparse timecourses from multiple patients
+# 2.6. Use a UDE model on rich timecourses from multiple patients
 #
 
 # 2.1. Delegate the identification of dynamics to a neural network
+
 neural_ode_model = @model begin
   @param begin
-    mlp ∈ MLPDomain(3, 8, 8, (3, identity); reg=L1(1.0; output=false))    # neural network with 2 inputs and 1 output
+    mlp ∈ MLPDomain(3, 6, 6, (3, identity); reg=L1(1.0; output=false))    # neural network with 2 inputs and 1 output
     tvR₀ ∈ RealDomain(; lower=0)
     σ ∈ RealDomain(; lower=0)                       # residual error
   end
@@ -184,7 +189,7 @@ neural_ode_model = @model begin
   end
 end
 
-fpm_node = fit(neural_ode_model, data_a, sample_params(neural_ode_model), MAP(NaivePooled()))
+fpm_node = fit(neural_ode_model, data_a, init_params(neural_ode_model), MAP(NaivePooled()))
 
 pred_a = predict(fpm_node; obstimes=0:0.01:15)
 plotgrid(
@@ -206,8 +211,11 @@ plotgrid!(
 # Try changing the the parameters from init_params (deterministic) to sample_params (random
 # and anything goes) and fit again a few times. How well do you fit subject A? And how well
 # do you fit subject B?
+# What about changing the number of hidden nodes in the neural network?
 
 
+# 2.2. Identify only the PD using a universal differential equation (UDE)
+#
 # Let's encode some more knowledge, leaving less for the neural network to pick up.
 
 ude_model = @model begin
@@ -255,9 +263,7 @@ plotgrid!(
   ipred=false,
 )
 
-
-# 2.2. Combine existing domain knowledge and a neural network
-
+# 2.3. Improve the UDE model by encoding more domain knowledge
 
 ude_model_knowledge = @model begin
   @param begin
@@ -291,10 +297,8 @@ end
 fpm_knowledge = fit(
   ude_model_knowledge,
   data_a,
-  # sample_params(ude_model_knowledge),
   init_params(ude_model_knowledge),
   MAP(NaivePooled());
-  # optim_options = (; iterations = 10_000, show_every=100)
 )
 
 pred_a = predict(fpm_knowledge; obstimes=0:0.1:15);
@@ -322,35 +326,7 @@ plotgrid!(pred_datamodel_b; pred=(; color=(:black, 0.4), label="Datamodel"), ipr
 # How did we do? Did the encoding of further knowledge (conservation of drug
 # between Depot and Central) make the model better?
 
-# 2.3. Extend the analysis to a population of multiple, heterogeneous, subjects
-#
-
-data_model_heterogeneous = @model begin
-  @param begin
-    tvImax ∈ RealDomain(; lower=0.0)  # typical value of maximum inhibition
-    tvIC50 ∈ RealDomain(; lower=0.0)  # typical value of concentration for half-way inhibition
-    tvKa ∈ RealDomain(; lower=0.0)    # typical value of absorption rate constant
-    tvVc ∈ RealDomain(; lower=0)
-    σ ∈ RealDomain(; lower=0.0)       # residual error
-  end
-  @random η ~ MvNormal(Diagonal([0.05, 0.05, 0.05]))
-  @pre begin
-    Imax = tvImax * exp(η[1])
-    IC50 = tvIC50 * exp(η[2])
-    Vc = tvVc
-    Ka = tvKa * exp(η[2])
-  end
-  @vars begin
-    cp := Central / Vc
-  end
-  @dynamics begin
-    Depot' = -Ka * Depot
-    Central' = Ka * Depot - Imax * cp / (IC50 + cp)
-  end
-  @derived begin
-    Outcome ~ @. Normal(cp, cp * σ)
-  end
-end
+# 2.4. Extend the analysis to a population of multiple subjects
 
 data_model_heterogeneous = @model begin
   @param begin
@@ -365,7 +341,7 @@ data_model_heterogeneous = @model begin
     σ ∈ RealDomain()
   end
   @random begin
-    η ~ MvNormal(5, 0.3)
+    η ~ MvNormal(5, 0.2)
   end
   @pre begin
     Smax = tvSmax * exp(η[1])
@@ -395,14 +371,14 @@ data_model_heterogeneous = @model begin
 end
 
 
-# 2.4. Analyse the effect of very sparse data on the predictions
+# 2.5. Use a UDE model on sparse timecourses from multiple patients
 
 sims_sparse = [
   simobs(
     data_model_heterogeneous,
     Subject(; events=DosageRegimen(1.0), id=i),
     true_parameters;
-    obstimes=11 .* sort!(rand(2))
+    obstimes=11 .* sort!(rand(StableRNG(i), 2))
   ) for i = 1:25
 ]
 population_sparse = Subject.(sims_sparse)
@@ -415,7 +391,7 @@ fpm_sparse = fit(
   MAP(NaivePooled()),
 )
 
-pred = predict(fpm_sparse; obstimes=0:0.01:10);
+pred = predict(fpm_sparse; obstimes=0:0.01:15);
 plotgrid(pred)
 
 # plot them all stacked ontop of oneanother
@@ -429,7 +405,7 @@ fig
 # Does it look like we've found anything reasonable?
 
 
-# 2.5. Finally, what if we have multiple patients with fairly rich timecourses?
+# 2.6. Use a UDE model on rich timecourses from multiple patients
 
 population = synthetic_data(
   data_model_heterogeneous,
@@ -454,7 +430,7 @@ plotgrid(pred)
 
 
 ############################################################################################
-#                                   2.6. Bonus material                                    #
+#                                    3. Bonus material                                     #
 ############################################################################################
 
 # The examples above illustrate the core concepts that we want to teach. However, they're a
@@ -463,7 +439,7 @@ plotgrid(pred)
 # Here, we go through some of the problems one is likely to face when using UDEs in real
 # projects and how to think when trying to solve them.
 
-# 2.6.1. Akward scales 
+# 3.1. Akward scales 
 
 # Most neural networks work best if the input and target outputs have value that are not too
 # far from the relevant bits of our activation functions. A farily standard practice in ML
@@ -486,7 +462,7 @@ parameters_scaled = (;
 
 data_hard_scale = synthetic_data(
   data_model,
-  DosageRegimen(scaling),
+  DosageRegimen(scaling, addl=1, ii=5),
   parameters_scaled;
   nsubj=1,
   obstimes=0:0.5:15,
@@ -496,10 +472,10 @@ data_hard_scale = synthetic_data(
 plotgrid(data_hard_scale)
 
 fpm_hard_scale = fit(
-  ude_model_knowledge,
+  ude_model, # note that we're now using the model with R' = mlp(Central/Vc, R)
   data_hard_scale,
   # init_params(ude_model_knowledge),
-  sample_params(ude_model_knowledge),
+  sample_params(ude_model),
   MAP(NaivePooled())
 )
 
@@ -507,14 +483,15 @@ pred_hard_scale = predict(fpm_hard_scale; obstimes=0:0.1:10)
 plotgrid(pred_hard_scale)
 
 ## Why did that fail so miserably? 
-# For "Outcome" to be ≈ 1000, we'd need Central to be ≈ 1000 and these values will be
-# inputs to our neural network.
+# We just applied a dose of 10,000 which will make the value of Central large. Furthermore,
+# "Outcome" needs to be on the scale of 10,000 to fit the data and this is also an input to
+# the neural network.
 
 # But our activation function, tanh, saturates for values much larger than 1.
 x = -5:0.1:5
 lines(x, tanh.(x))
 
-using ForwardDiff: derivative
+using DeepPumas.ForwardDiff: derivative
 derivative(tanh, 0.0)
 derivative(tanh, 1.0)
 derivative(tanh, 10.0)
@@ -528,7 +505,7 @@ b = rand(6)
 input = [1.0]
 tanh.(w' * input .+ b)
 
-input_large = 1e2
+input_large = 1e4
 tanh.(w' * input_large .+ b) # All saturated, almost no gradient, no chance for the optimiser to work.
 
 ## So, what's the solution? Abandon tanh?
@@ -541,27 +518,25 @@ derivative(softplus, 1e3)
 
 model_softplus = @model begin
   @param begin
-    mlp ∈ MLPDomain(1, 6, 6, (1, identity, false); reg=L1(1), act=softplus)
-    tvKa ∈ RealDomain(; lower=0)                    # typical value of absorption rate constant
+    mlp ∈ MLPDomain(2, 6, 6, (1, identity, false); reg=L1(1), act=softplus)
     tvCL ∈ RealDomain(; lower=0)
     tvVc ∈ RealDomain(; lower=0)
-    tvKout ∈ RealDomain(; lower=0)
-    tvKin ∈ RealDomain(; lower=0)
-    σ ∈ RealDomain(; lower=0)                       # residual error
+    tvKa ∈ RealDomain(; lower=0)
+    tvR₀ ∈ RealDomain(; lower=0, init=1e3)
+    σ ∈ RealDomain(; lower=0)
   end
   @pre begin
     mlp_ = only ∘ mlp
     CL = tvCL
     Vc = tvVc
     Ka = tvKa
-    Kin = tvKin
-    Kout = tvKout
+    R₀ = tvR₀
   end
-  @init R = Kin / Kout
+  @init R = R₀
   @dynamics begin
     Depot' = -Ka * Depot
     Central' = Ka * Depot - (CL / Vc) * Central
-    R' = Kin * (1 + mlp_(Central / Vc)) - Kout * R
+    R' = mlp_(Central/Vc, R)
   end
   @derived begin
     Outcome ~ @. Normal(R, σ)
@@ -577,12 +552,29 @@ fpm_softplus = fit(
 
 plotgrid(predict(fpm_softplus; obstimes=0:0.1:10))
 
-## looks better, right? But it's completely linear at the relevant scales of input values.
-#It's still not good.
+# Hmm, the gradients are better but the model still has a hard time finding a good solution. 
+
+# If you found something that looks pretty reasonable then odds are that you've still just found a linear relationship between the drug and the response.
 
 nn = only ∘ coef(fpm_softplus).mlp
-lines(1:100:10_000, nn.(1:100:10_000))
+x = 0:10:10000
+lines(x, nn.(x, 1e3); axis = (; ylabel = "mlp output", xlabel = "Central/Vc"))
 
+# Even if softplus does not saturate, the magnitude of the input is still so large that it is essentially piecewise linear
+lines(-2:0.1:2, softplus.(-2:0.1:2))
+lines(-10000:100:10000, softplus.(-10000:100:10000))
+# A piecewise linear activation function like this (relu) works well for large neural networks but poorly for small. 
+# One could imagine that the neural network fitting would figure out that it ought to use
+# the input layer to scale the inputs down such that the inputs to the hidden layers are ok
+# and then to scale the ouputs of the output layer up again. But this is hard for two
+# reasons. First, the gradient in that "direction" of parameter space is almost nonexistent.
+# Softplus with an input of 1e4 is about as linear as softplus with input of 1e3. Second,
+# we're regularizing the parameters to have low values. Scaling up output from ≈1 to ≈10,000
+# would come with a massive penalty from our regularization. You can try changing L1(1.) to
+# L1(1.; input=false, output=false) to prevent regularization of the input and output
+# layers. That would remove the penalty for the NN automatically rescaling the input but
+# you'd still be left with a terrible gradient for the optimizer to work with.
+ 
 
 # With UDEs/NeuralODEs, we don't always know exactly what input values the NN will recieve,
 # but we can often figure out which order of magnitude they'll have. If we can rescale the
@@ -591,14 +583,13 @@ lines(1:100:10_000, nn.(1:100:10_000))
 # Central. 
 
 
-model_softplus_rescale = @model begin
+model_rescale = @model begin
   @param begin
-    mlp ∈ MLPDomain(1, 6, 6, (1, identity); reg=L1(1), act=softplus)
-    tvKa ∈ RealDomain(; lower=0) 
+    mlp ∈ MLPDomain(2, 6, 6, (1, identity); reg=L1(1))
     tvCL ∈ RealDomain(; lower=0)
     tvVc ∈ RealDomain(; lower=0)
-    tvKout ∈ RealDomain(; lower=0)
-    tvKin ∈ RealDomain(; lower=0, init=1e3)
+    tvKa ∈ RealDomain(; lower=0)
+    tvR₀ ∈ RealDomain(; lower=0, init=1e3)
     σ ∈ RealDomain(; lower=0)
   end
   @pre begin
@@ -606,14 +597,13 @@ model_softplus_rescale = @model begin
     CL = tvCL
     Vc = tvVc
     Ka = tvKa
-    Kin = tvKin
-    Kout = tvKout
+    R₀ = tvR₀
   end
-  @init R = Kin / Kout
+  @init R = R₀
   @dynamics begin
     Depot' = -Ka * Depot
     Central' = Ka * Depot - (CL / Vc) * Central
-    R' = Kin * (1 + mlp_((Central / Vc) / 1e4)) - Kout * R
+    R' = mlp_(Central/(Vc*1e4), R/1e4) * 1e4
   end
   @derived begin
     Outcome ~ @. Normal(R, abs(R) * σ)
@@ -622,17 +612,17 @@ end
 
 
 fpm_rescale = fit(
-  model_softplus_rescale,
+  model_rescale,
   data_hard_scale,
-  init_params(model_softplus_rescale),
-  MAP(NaivePooled())
+  sample_params(model_rescale), # random - you'll get different solutions every time
+  MAP(NaivePooled()),
 )
 
 plotgrid(predict(fpm_rescale; obstimes=0:0.1:10))
 
 
 # Now when we've rescaled like this, our switch to softplus became unnecessary, try
-# switching back.
+# switching back to tanh.
 
 
 # So, be mindful of what scales you expect your nerual network to get as inputs and to need
@@ -643,56 +633,5 @@ plotgrid(predict(fpm_rescale; obstimes=0:0.1:10))
 #smaller than 1, we get that the necessary large weights of the input layer may be
 #over-regularized. It often makes sense not to regularize the input or output layer of the
 #neural network. That avoids this particular problem but it does not always make it easy to
-#find the soultion since initial gradients may be close to zero and the optimizer won't know
+#find the solution since initial gradients may be close to zero and the optimizer won't know
 #what to do.
-
-
-# 2.6.2 why deviate from the ML standard of using the relu activation function? Why tanh!?
-
-
-model_relu = @model begin
-  @param begin
-    mlp ∈ MLPDomain(1, 6, 6, (1, identity); act=relu, reg=L2(1; output=false))
-    tvKa ∈ RealDomain(; lower=0.0)                          # typical value of absorption rate constant
-    σ ∈ RealDomain(; lower=0.0)                             # residual error
-  end
-  @pre begin
-    mlp_ = only ∘ mlp
-    Ka = tvKa
-  end
-  @dynamics begin
-    Depot' = -Ka * Depot                                # known
-    Central' = Ka * Depot - mlp_(Central)               # knowledge of conservation added
-  end
-  @derived begin
-    Outcome ~ @. Normal(Central, σ)
-  end
-end
-
-
-
-fpm_relu = fit(
-  model_relu,
-  data_a,
-  init_params(model_relu),
-  MAP(NaivePooled());
-  checkidentification=false # needed because some parameter gradients will be zero with relu
-)
-
-plotgrid(predict(fpm_relu; obstimes=0:0.1:10))
-
-# well, that was less bad than ideal for illustrating why not to use relu... But, the
-# problem is that you'll find a piecewise linear function
-
-
-nn_relu = only ∘ coef(fpm_relu).mlp
-x = 0:0.001:0.3 # the range of Central, just look at the y axis of the plot to see this.
-lines(x, nn_relu.(x); axis=(; ylabel="Central elimination", xlabel="Central"))
-
-
-# With large neural networks, such piecewise linear functions end up being pretty
-# expressive. But for our relatively small networks they tend to lead to bad artefacts and
-# they can be hard to fit. I just avoid relu in any small networks.
-
-
-
