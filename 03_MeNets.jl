@@ -54,10 +54,10 @@ plotgrid(predict(fpm_t; obstimes=0:0.01:1)[1:12]; ylabel = "Y (Training data)")
 ## Mixed-effects neural network
 model_me = @model begin
   @param begin
-    NN ∈ MLPDomain(3, 6, 6, (1, identity); reg=L2(; input=false))
+    NN ∈ MLPDomain(3, 6, 6, (1, identity); reg=L2(3.; input=false))
     σ ∈ RealDomain(; lower=0.)
   end
-  @random η ~ MvNormal(0.1 .* I(2))
+  @random η ~ MvNormal(2, 0.1)
   @pre X = NN(t, η)[1]
   @derived Y ~ @. Normal(X, σ)
 end
@@ -102,6 +102,7 @@ The quality of the fits here depend a on a few different things. Among these are
 - The number of training subjects
 - The number of observations per subject
 - The noisiness of the data
+- The regularization of your embedded neural network
 
 You may not need many patients to train on if your data is good - use and
 modify the code just below to try it!
@@ -131,7 +132,7 @@ fpm_me_2 = fit(
 
 # Plot training performance
 pred_train = predict(fpm_me_2; obstimes=0:0.01:1)[1:min(12, end)]
-plotgrid(pred_train; ylabel = "Y (training data)")
+plotgrid(pred_train[1:min(12,end)]; ylabel = "Y (training data)")
 
 # Plot test performance
 pred_test = predict(model_me, testpop_me, coef(fpm_me_2); obstimes=0:0.005:1)
@@ -174,7 +175,7 @@ model_me2 = @model begin
     NN ∈ MLPDomain(2, 6, 6, (1, identity); reg=L2(; input=false)) # We now only have 2 inputs as opposed to 3 in model_me
     σ ∈ RealDomain(; lower=0.)
   end
-  @random η ~ MvNormal(0.1 .* I(1))
+  @random η ~ MvNormal(1, 0.1)
   @pre X = NN(t, η)[1]
   @derived Y ~ Normal.(X, σ)
 end
