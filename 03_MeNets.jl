@@ -12,10 +12,8 @@ datamodel_me = @model begin
     c1 ~ Uniform(0.5, 1.5)
     c2 ~ Uniform(-2, 0)
   end
-  @derived begin
-    X := @. c1 * t / (t + exp10(c2))
-    Y ~ @. Normal(X, σ)
-  end
+  @pre X = c1 * t / (t + exp10(c2))
+  @derived Y ~ @. Normal(X, σ)
 end
 
 trainpop_me = synthetic_data(datamodel_me, (; σ=0.05); obstimes=0:0.05:1, nsubj=100)
@@ -201,3 +199,25 @@ plotgrid(pred_train; ylabel = "Y (training data)")
 The model *should* not be able to make a perfect fit here - but how did it do?
 What aspect of the data did it seem not to capture?
 =#
+
+
+#=
+The neural network ended up finding some individualizable function of time. We can explore
+the shape of that function and how that shape changes across the different values of η that
+were used to individualize the function.
+=#
+
+begin
+  fig = Figure()
+  ax = Axis(fig[1,1]; xlabel = "t", ylabel = "NN(t, η)")
+  ηs = map(x->x.η[1], empirical_bayes(fpm_me2))
+  trange = 0:0.01:1
+  nn = coef(fpm_me2).NN
+  colorrange = (minimum(ηs), maximum(ηs))
+  for η in ηs
+    lines!(ax, trange, first.(nn.(trange, η)); color=η, colormap=:Spectral, colorrange)
+  end
+  Colorbar(fig[1,2]; colorrange, colormap=:Spectral, label = "η")
+  fig
+end
+
