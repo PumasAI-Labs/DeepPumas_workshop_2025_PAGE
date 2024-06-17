@@ -170,7 +170,7 @@ fpm.optim
 
 # The model has succeeded in discovering the dynamical model if the individual predictions
 # match the observations of the test population well.
-pred = predict(model, testpop, coef(fpm); obstimes=0:0.1:24);
+pred = predict(fpm, testpop; obstimes=0:0.1:24);
 plotgrid(pred)
 
 ############################################################################################
