@@ -65,11 +65,24 @@ p_data = (;
     σ = 0.1                         ## <-- tune the observational noise of the data here
 )
 
-dr = DosageRegimen(1., ii=6, addl=2)
 obstimes = 0:24
+ntrain = 10
+ntest = 12
+pop = map(1:ntrain + ntest) do i
+    rng = StableRNG(i)
+    dose_1 = DosageRegimen(1.)
+    dose_2 = DosageRegimen(1.; time=rand(rng, Gamma(40, 5/40)))
+    sim = simobs(
+        datamodel, 
+        Subject(; id = i, events=DosageRegimen(dose_1, dose_2)), 
+        p_data; 
+        obstimes, 
+        rng)
+    Subject(sim)
+end
 
-trainpop = synthetic_data(datamodel, dr, p_data; nsubj = 10, obstimes, rng=StableRNG(1))
-testpop = synthetic_data(datamodel, dr, p_data; nsubj = 12, obstimes, rng=StableRNG(2))
+trainpop = pop[1:ntrain]
+testpop = pop[(ntrain+1):end]
 
 
 ## Visualize the synthetic data and the predictions of the data-generating model.
@@ -90,7 +103,7 @@ model = @model begin
         # Define a multi-layer perceptron (a neural network) which maps from 5 inputs (2
         # state variables + 3 individual parameters) to a single output. Apply L2
         # regularization (equivalent to a Normal prior).
-        NN ∈ MLPDomain(5, 6, 5, (1, identity); reg = L2(1.0))
+        NN ∈ MLPDomain(5, 7, 7, (1, identity); reg = L2(1.0))
         tvKa ∈ RealDomain(; lower = 0)
         tvCL ∈ RealDomain(; lower = 0)
         tvVc ∈ RealDomain(; lower = 0)
@@ -138,7 +151,7 @@ fpm = fit(
     init_params(model),
     MAP(FOCE());
     # Some extra options to speed up the demo at the expense of a little accuracy:
-    optim_options = (; iterations=300),
+    optim_options = (; iterations=300, f_tol=1e-6),
 )
 # Note that we only used 10 patients to train the model (unless you've tinkered with the code - something we encourage!).
 
