@@ -113,11 +113,11 @@ plotgrid!(pred_datamodel_b; data=true, ipred=false)
 
 # 1.2. A non-dynamic machine learning model for later comparison.
 
-```
+"""
     time_model
     
 A machine learning model mapping time to a noisy outcome. This is not a SciML model.
-```
+"""
 time_model = @model begin
   @param begin
     mlp ∈ MLPDomain(1, 6, 6, (1, identity); reg=L1(1.0; output=false))
@@ -134,8 +134,8 @@ time_model = @model begin
 end
 
 # Strip the dose out of the subject since this simple model does not know what to do with a dose.
-data_a_no_dose = read_pumas(DataFrame(data_a); observations=[:Outcome], event_data=false)
-data_b_no_dose = read_pumas(DataFrame(data_b); observations=[:Outcome], event_data=false)
+data_a_no_dose = Subject.(data_a; events=nothing)
+data_b_no_dose = Subject.(data_b; events=nothing)
 
 fpm_time = fit(time_model, data_a_no_dose, init_params(time_model), MAP(NaivePooled()))
 
@@ -147,7 +147,7 @@ plotgrid(
   ipred=false
 )
 
-pred_b = predict(time_model, data_b_no_dose, coef(fpm_time); obstimes=0:0.1:15);
+pred_b = predict(fpm_time, data_b_no_dose; obstimes=0:0.1:15);
 plotgrid!(
   pred_b,
   pred=(; label="Pred (subject B)", color=:red),
@@ -378,8 +378,8 @@ sims_sparse = [
     data_model_heterogeneous,
     Subject(; events=DosageRegimen(1.0), id=i),
     true_parameters;
-    obstimes=11 .* sort!(rand(StableRNG(i), 2))
-  ) for i = 1:25
+    obstimes=10 .* sort!(rand(StableRNG(i), 2))
+  ) for i = 1:30
 ]
 population_sparse = Subject.(sims_sparse)
 plotgrid(population_sparse)
@@ -507,6 +507,7 @@ tanh.(w' * input .+ b)
 
 input_large = 1e4
 tanh.(w' * input_large .+ b) # All saturated, almost no gradient, no chance for the optimiser to work.
+derivative.(tanh, w' * input_large .+ b)
 
 ## So, what's the solution? Abandon tanh?
 
