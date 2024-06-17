@@ -230,8 +230,8 @@ fitted_nn = fit(
     optim_alg = DeepPumas.BFGS(),
     optim_options = (; iterations = 10),
 )
-push!(loss_train_l, sum((fitted_nn(x_train) .- y_train) .^ 2))
-push!(loss_valid_l, sum((fitted_nn(x_valid) .- y_valid) .^ 2))
+push!(loss_train_l, mae(fitted_nn(x_train), y_train))
+push!(loss_valid_l, mae(fitted_nn(x_valid), y_valid)) 
 
 iteration_blocks = 100
 for _ = 2:iteration_blocks
@@ -242,8 +242,8 @@ for _ = 2:iteration_blocks
         optim_alg = DeepPumas.BFGS(),
         optim_options = (; iterations = 10),
     )
-    push!(loss_train_l, sum((fitted_nn(x_train) .- y_train) .^ 2))
-    push!(loss_valid_l, sum((fitted_nn(x_valid) .- y_valid) .^ 2))
+    push!(loss_train_l, mae(fitted_nn(x_train), y_train))
+    push!(loss_valid_l, mae(fitted_nn(x_valid), y_valid)) 
 end
 
 iteration = 10 .* (1:iteration_blocks)
@@ -251,7 +251,7 @@ fig, ax = scatterlines(
     iteration,
     Float32.(loss_train_l);
     label = "training",
-    axis = (; xlabel = "Iteration", ylabel = "Mean squared loss"),
+    axis = (; xlabel = "Iteration", ylabel = "Mean absolute loss"),
 );
 scatterlines!(iteration, Float32.(loss_valid_l); label = "validation");
 axislegend();
@@ -269,8 +269,8 @@ fitted_reg_nn = fit(
     optim_alg = DeepPumas.BFGS(),
     optim_options = (; iterations = 10),
 )
-push!(reg_loss_train_l, sum((fitted_reg_nn(x_train) .- y_train) .^ 2))
-push!(reg_loss_valid_l, sum((fitted_reg_nn(x_valid) .- y_valid) .^ 2))
+push!(reg_loss_train_l, mae(fitted_reg_nn(x_train), y_train))
+push!(reg_loss_valid_l, mae(fitted_reg_nn(x_valid), y_valid))
 
 iteration_blocks = 100
 for _ = 2:iteration_blocks
@@ -281,8 +281,8 @@ for _ = 2:iteration_blocks
         optim_alg = DeepPumas.BFGS(),
         optim_options = (; iterations = 10),
     )
-    push!(reg_loss_train_l, sum((fitted_reg_nn(x_train) .- y_train) .^ 2))
-    push!(reg_loss_valid_l, sum((fitted_reg_nn(x_valid) .- y_valid) .^ 2))
+    push!(reg_loss_train_l, mae(fitted_reg_nn(x_train), y_train))
+    push!(reg_loss_valid_l, mae(fitted_reg_nn(x_valid), y_valid))
 end
 
 iteration = 10 .* (1:iteration_blocks)
@@ -290,7 +290,7 @@ fig, ax = scatterlines(
     iteration,
     Float32.(loss_train_l);
     label = "training",
-    axis = (; xlabel = "Blocks of 10 iterations", ylabel = "Mean squared loss"),
+    axis = (; xlabel = "Blocks of 10 iterations", ylabel = "Mean absolute loss"),
 );
 scatterlines!(iteration, Float32.(loss_valid_l); label = "validation");
 scatterlines!(iteration, Float32.(reg_loss_train_l); label = "training (L2)");
