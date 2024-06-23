@@ -298,7 +298,7 @@ scatterlines!(iteration, Float32.(reg_loss_valid_l); label = "validation (L2)");
 axislegend();
 fig
 
-# 4.3. Programatic hyperparameter tuning
+# 4.3. Programmatic hyperparameter tuning
 
 nn_ho = hyperopt(reg_nn, target_train)
 nn_ho.best_hyperparameters

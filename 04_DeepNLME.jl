@@ -203,7 +203,7 @@ Explore freely, but if you want some ideas for what you can look at then here's 
   the NN capture only what's called EFF in the data generating model. You can stop using R as
   an input but you'll need to change the MLPDomain definition for that.
   
-- Change the number of random effects that's passed to the nerual network. What happens if
+- Change the number of random effects that's passed to the neural network. What happens if
   the DeepNLME model has fewer random effects than the data generating model? What happens if
   it has more?
 

@@ -439,11 +439,11 @@ plotgrid(pred)
 # Here, we go through some of the problems one is likely to face when using UDEs in real
 # projects and how to think when trying to solve them.
 
-# 3.1. Akward scales 
+# 3.1. Awkward scales 
 
-# Most neural networks work best if the input and target outputs have value that are not too
-# far from the relevant bits of our activation functions. A farily standard practice in ML
-# regression is to standardize input and output to have a mean 0 and std=1 or to ensure that
+# Most neural networks work best if the input and target outputs have values that are not too
+# far from the relevant bits of our activation functions. A fairly standard practice in ML
+# regression is to standardize input and output to have a mean=0 and std=1 or to ensure that
 # all values are between 0 and 1. With bad input/output scales, it can be hard to fit a
 # model. 
 
@@ -580,7 +580,7 @@ lines(-10000:100:10000, softplus.(-10000:100:10000))
 # With UDEs/NeuralODEs, we don't always know exactly what input values the NN will recieve,
 # but we can often figure out which order of magnitude they'll have. If we can rescale the
 # NN inputs and outputs to be close to 1 then we would be in a much better place. In this
-# case, we know that we're dosing with 1e4 and that there's concervation from Depot to
+# case, we know that we're dosing with 1e4 and that there's conservation from Depot to
 # Central. 
 
 
@@ -627,12 +627,12 @@ plotgrid(predict(fpm_rescale; obstimes=0:0.1:10))
 
 
 # So, be mindful of what scales you expect your nerual network to get as inputs and to need
-#to get as outputs. Also, be mindful of how the regularization may be penalizing automatic
-#rescaling of the input/output layer. Here, we looked at large inputs which could have been
-#solved by the weights of the first neural network being small but where the later need to
-#up-scale in the output layer would be penalized by the regularization. For inputs much
-#smaller than 1, we get that the necessary large weights of the input layer may be
-#over-regularized. It often makes sense not to regularize the input or output layer of the
-#neural network. That avoids this particular problem but it does not always make it easy to
-#find the solution since initial gradients may be close to zero and the optimizer won't know
-#what to do.
+# to get as outputs. Also, be mindful of how the regularization may be penalizing automatic
+# rescaling of the input/output layer. Here, we looked at large inputs which could have been
+# solved by the weights of the first neural network being small but where the later need to
+# up-scale in the output layer would be penalized by the regularization. For inputs much
+# smaller than 1, we get that the necessary large weights of the input layer may be
+# over-regularized. It often makes sense not to regularize the input or output layer of the
+# neural network. That avoids this particular problem but it does not always make it easy to
+# find the solution since initial gradients may be close to zero and the optimizer won't know
+# what to do.

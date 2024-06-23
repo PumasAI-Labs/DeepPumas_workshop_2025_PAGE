@@ -95,7 +95,7 @@ fit does.
 
 
 #=
-The quality of the fits here depend a on a few different things. Among these are:
+The quality of the fits here depends on a few different things. Among these are:
 
 - The number of training subjects
 - The number of observations per subject
@@ -139,7 +139,7 @@ plotgrid(pred_test; ylabel="Y (Test data)")
 
 #=
 
-Another important factor is the 'dimensionality' of outcome heteroneniety in
+Another important factor is the 'dimensionality' of outcome heterogeneity in
 the data versus in the model. 
 
 Here, the synthetic data has inter-patient variability in c1 and c2. These two
@@ -163,7 +163,7 @@ than our data has? The easiest way for us to play with this here is to reduce
 the number of random effects we feed to the neural network in our model_me.
 
 The model is then too 'simple' to be able to prefectly fit the data, but in
-what way will it fail, and how much? Train such a model on nice and clean Data
+what way will it fail, and how much? Train such a model on nice and clean data
 to be able to see in what way the fit fails
 
 =#
