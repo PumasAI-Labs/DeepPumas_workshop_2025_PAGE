@@ -76,19 +76,6 @@ plotgrid(pred_train)
 pred_test = predict(model_me, testpop_me[1:12], coef(fpm_me); obstimes=0:0.01:1)
 plotgrid(pred_test ; ylabel="Y (Test data)")
 
-#=
-When we generated the data, we sampled two parameter values for each Subject. 
-In this Mixed-effect neural network, we're using two random effects, so there is hope that
-the model can perfectly capture this two-dimensional between-subject variability.
-
-But, what if our model had fewer random effects than there are dimensions of subject outcome variability?
-
-Exercise: 
-Modify the model_me to only use a single random effect (change the I(2) in the
-random effects and the number of inputs in the MLP) and see how the resulting
-fit does.
-=#
-
 
 ############################################################################################
 ############################################################################################
