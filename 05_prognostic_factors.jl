@@ -101,16 +101,16 @@ plotgrid(pred_datamodel)
 ############################################################################################
 ## Neural-embedded NLME modeling
 ############################################################################################
-# Here, we define a model where the PD is entirely deterimined by a neural network.
+# Here, we define a model where the PD is entirely determined by a neural network.
 # At this point, we're not trying to explain how patient data may inform individual
 # parameters
 
 
 model = @model begin
   @param begin
-    # Define a multi-layer perceptron (a neural network) which maps from 5 inputs (2
-    # state variables + 3 individual parameters) to a single output. Apply L2
-    # regularization (equivalent to a Normal prior).
+    # Define a multi-layer perceptron (a neural network) which maps from 5 inputs
+    # (2 state variables + 3 individual parameters) to a single output.
+    # Apply L2 regularization (equivalent to a Normal prior).
     NN ∈ MLPDomain(5, 6, 5, (1, identity); reg=L2(1.0))
     tvKa ∈ RealDomain(; lower=0)
     tvCL ∈ RealDomain(; lower=0)
@@ -239,8 +239,8 @@ mean(abs, pred_residuals(pred_datamodel, pred_augment_ho))
 # training covariate models well requires more data than fitting the neural networks
 # embedded in dynamical systems. With UDEs, every observation is a data point. With
 # prognostic factor models, every subject is a data point. We've (hopefully) managed to
-# improve our model using only 50 subjects, but lets try using data from 1000 patients
-# instead. 
+# improve our model using only 50 subjects, but let's try using data from 1000 patients
+# instead.
 
 target_large = preprocess(model, trainpop_large, coef(fpm), FOCE())
 fnn_large = hyperopt(nn, target_large)
@@ -321,7 +321,3 @@ plotgrid!(pred_deep; ipred=false, pred=(; color=Cycled(2), label = "Deep fit pre
 # Compare the deviation from the best possible pred. 
 mean(abs, pred_residuals(pred_datamodel, pred_augment))
 mean(abs, pred_residuals(pred_datamodel, pred_deep))
-
-
-
-
