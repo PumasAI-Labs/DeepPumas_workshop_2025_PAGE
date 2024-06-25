@@ -3,7 +3,7 @@ using Pumas, CSV, CairoMakie, PumasUtilities
 # Current working directory
 pwd()
 
-df = CSV.read("tgd-os/tgd-os2.csv", DataFrame; missingstring=[".", ""])
+df = CSV.read("data/tgd-os2.csv", DataFrame; missingstring=[".", ""])
 tgd_os_pop = read_pumas(
     df,
     observations = [:SLD, :Death],
