@@ -79,30 +79,11 @@ dr1 = DosageRegimen(1.0, addl=1, ii=5)
 _subj = Subject(; events = dr1, id = "Subject A")
 sim_a = simobs(data_model, _subj, true_parameters; obstimes=0:0.5:15, rng=StableRNG(1))
 data_a = [Subject(sim_a)]
-# simobs(data_model)
 
 dr_b = DosageRegimen(0.1, addl=1, ii=5)
 subj_b = Subject(; events = dr_b, id = "Subject B")
 sim_b = simobs(data_model, subj_b, true_parameters; obstimes=0:0.5:15, rng=StableRNG(2))
 data_b = [Subject(sim_b)]
-
-# data_a = synthetic_data(
-#   data_model,
-#   DosageRegimen(1.0, addl=1, ii=5),
-#   true_parameters;
-#   nsubj=1,
-#   obstimes=0:0.5:15,
-#   rng=StableRNG(1)
-# )
-
-data_b = synthetic_data(
-  data_model,
-  DosageRegimen(0.2, addl=1, ii=5),
-  true_parameters;
-  nsubj=1,
-  obstimes=0:0.5:15,
-  rng=StableRNG(2)
-)
 
 plotgrid(data_a; data=(; label="Data (subject A)"))
 plotgrid!(data_b; data=(; label="Data (subject B)"), color=:gray)
