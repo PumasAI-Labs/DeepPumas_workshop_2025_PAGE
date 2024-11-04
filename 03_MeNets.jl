@@ -2,6 +2,7 @@ using Random
 using Distributions
 using DeepPumas
 using CairoMakie
+set_mlp_backend(:staticflux)
 
 ## Generate data
 ## The "observations", Y, are functions of time but there is within-subject correlation
@@ -10,14 +11,15 @@ datamodel_me = @model begin
   @param σ ∈ RealDomain(; lower=0., init=0.05)
   @random begin
     c1 ~ Uniform(0.5, 1.5)
-    c2 ~ Uniform(-2, 0)
+    c2 ~ Uniform(-1, 0)
   end
   @pre X = c1 * t / (t + exp10(c2))
   @derived Y ~ @. Normal(X, σ)
 end
 
-trainpop_me = synthetic_data(datamodel_me, (; σ=0.05); obstimes=0:0.05:1, nsubj=100)
-testpop_me = synthetic_data(datamodel_me, (; σ=0.05); obstimes=0:0.05:1, nsubj=12)
+sims = simobs(datamodel_me, [Subject(; id) for id in 1:112], (; σ=0.05); obstimes=0:0.05:1)
+trainpop_me = Subject.(sims[1:100])
+testpop_me = Subject.(sims[101:end])
 
 plotgrid(trainpop_me[1:12])
 
@@ -52,7 +54,7 @@ plotgrid(predict(fpm_t; obstimes=0:0.01:1)[1:12]; ylabel = "Y (Training data)")
 ## Mixed-effects neural network
 model_me = @model begin
   @param begin
-    NN ∈ MLPDomain(3, 6, 6, (1, identity); reg=L2(3.; input=false))
+    NN ∈ MLPDomain(3, 6, 6, (1, identity); reg=L2(1.))
     σ ∈ RealDomain(; lower=0.)
   end
   @random η ~ MvNormal(2, 0.1)
@@ -73,7 +75,7 @@ pred_train = predict(fpm_me; obstimes=0:0.01:1)[1:12]
 plotgrid(pred_train)
 
 # Plot test performance
-pred_test = predict(model_me, testpop_me[1:12], coef(fpm_me); obstimes=0:0.01:1)
+pred_test = predict(fpm_me, testpop_me[1:12]; obstimes=0:0.01:1)
 plotgrid(pred_test ; ylabel="Y (Test data)")
 
 
@@ -97,22 +99,22 @@ But if the data quality is a bit off, then data quantity might compensate
   - increase obstimes density or nsubj and rerun again. 
 =#
 
-traindata_new = synthetic_data(
-  datamodel_me,
-  (; σ=0.2);         # Tune the additive noise
-  obstimes=0:0.05:1, # Modify the observation times
-  nsubj=10,          # Change the number of patients
+sims_new = simobs(
+  datamodel_me, 
+  [Subject(; id) for id in 1:10],  # Change the number of patients 
+  (; σ=0.05);                      # Tune the additive noise
+  obstimes=0:0.05:1                # Modify the observation times
 )
+traindata_new = Subject.(sims_new)
 
 plotgrid(traindata_new)
-
 
 fpm_me_2 = fit(
   model_me,
   traindata_new,
   sample_params(model_me),
   MAP(FOCE()); 
-  optim_options=(; iterations=300, time_limit=3*60),
+  optim_options=(; iterations=300, f_tol=1e-6, time_limit=3*60),
 )
 
 # Plot training performance
@@ -157,15 +159,21 @@ to be able to see in what way the fit fails
 
 model_me2 = @model begin
   @param begin
-    NN ∈ MLPDomain(2, 6, 6, (1, identity); reg=L2(; input=false)) # We now only have 2 inputs as opposed to 3 in model_me
+    NN ∈ MLPDomain(2, 6, 6, (1, identity); reg=L2(1.)) # We now only have 2 inputs as opposed to 3 in model_me
     σ ∈ RealDomain(; lower=0.)
   end
-  @random η ~ MvNormal(1, 0.1)
+  @random η ~ Normal(0, 1)
   @pre X = NN(t, η)[1]
   @derived Y ~ Normal.(X, σ)
 end
 
-great_data = synthetic_data(datamodel_me, (; σ=0.01); obstimes=0:0.05:1, nsubj=50)
+sims_great = simobs(
+  datamodel_me,
+  [Subject(; id) for id in 1:100],
+  (; σ=0.01);
+  obstimes=0:0.05:1
+)
+great_data = Subject.(sims_great)
 
 plotgrid(great_data)
 plotgrid(great_data[1:6])
@@ -175,7 +183,7 @@ fpm_me2 = fit(
   great_data,
   sample_params(model_me2),
   MAP(FOCE()); 
-  optim_options=(; iterations=300, time_limit=3*60),
+  optim_options=(; f_tol = 1e-5, time_limit=3*60),
 )
 
 pred_train = predict(fpm_me2; obstimes=0:0.01:1)[1:min(12, end)]
