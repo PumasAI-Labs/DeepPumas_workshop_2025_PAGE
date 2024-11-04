@@ -2,6 +2,7 @@ using DeepPumas
 using CairoMakie
 using StableRNGs
 set_theme!(deep_light())
+set_mlp_backend(:staticflux)
 
 # 
 # TABLE OF CONTENTS
@@ -34,25 +35,15 @@ one compartment non-linear elimination and oral dosing.
 """
 data_model = @model begin
   @param begin
-    tvKa ∈ RealDomain()
-    tvCL ∈ RealDomain()
-    tvVc ∈ RealDomain()
-    tvSmax ∈ RealDomain()
-    tvn ∈ RealDomain()
-    tvSC50 ∈ RealDomain()
-    tvKout ∈ RealDomain()
-    tvKin ∈ RealDomain()
+    Ka ∈ RealDomain()
+    CL ∈ RealDomain()
+    Vc ∈ RealDomain()
+    Smax ∈ RealDomain()
+    n ∈ RealDomain()
+    SC50 ∈ RealDomain()
+    Kout ∈ RealDomain()
+    Kin ∈ RealDomain()
     σ ∈ RealDomain()
-  end
-  @pre begin
-    Smax = tvSmax
-    SC50 = tvSC50
-    Ka = tvKa
-    Vc = tvVc
-    Kout = tvKout
-    Kin = tvKin
-    CL = tvCL
-    n = tvn
   end
   @init begin
     R = Kin / Kout
@@ -72,26 +63,37 @@ data_model = @model begin
 end
 
 true_parameters = (;
-  tvKa=0.5,
-  tvCL=1.0,
-  tvVc=1.0,
-  tvSmax=2.9,
-  tvn=1.5,
-  tvSC50=0.05,
-  tvKout=2.2,
-  tvKin=0.8,
+  Ka=0.5,
+  CL=1.0,
+  Vc=1.0,
+  Smax=2.9,
+  n=1.5,
+  SC50=0.05,
+  Kout=2.2,
+  Kin=0.8,
   σ=0.02                         ## <-- tune the observational noise of the data here
 )
 
 # 1.1. Simulate subjects A and B with different dosage regimens
-data_a = synthetic_data(
-  data_model,
-  DosageRegimen(1.0, addl=1, ii=5),
-  true_parameters;
-  nsubj=1,
-  obstimes=0:0.5:15,
-  rng=StableRNG(1)
-)
+dr1 = DosageRegimen(1.0, addl=1, ii=5)
+_subj = Subject(; events = dr1, id = "Subject A")
+sim_a = simobs(data_model, _subj, true_parameters; obstimes=0:0.5:15, rng=StableRNG(1))
+data_a = [Subject(sim_a)]
+# simobs(data_model)
+
+dr_b = DosageRegimen(0.1, addl=1, ii=5)
+subj_b = Subject(; events = dr_b, id = "Subject B")
+sim_b = simobs(data_model, subj_b, true_parameters; obstimes=0:0.5:15, rng=StableRNG(2))
+data_b = [Subject(sim_b)]
+
+# data_a = synthetic_data(
+#   data_model,
+#   DosageRegimen(1.0, addl=1, ii=5),
+#   true_parameters;
+#   nsubj=1,
+#   obstimes=0:0.5:15,
+#   rng=StableRNG(1)
+# )
 
 data_b = synthetic_data(
   data_model,
@@ -120,7 +122,7 @@ A machine learning model mapping time to a noisy outcome. This is not a SciML mo
 """
 time_model = @model begin
   @param begin
-    mlp ∈ MLPDomain(1, 6, 6, (1, identity); reg=L1(1.0; output=false))
+    mlp ∈ MLPDomain(1, 6, 6, (1, identity); reg=L2(1.0; output=false))
     σ ∈ RealDomain(; lower=0.0)
   end
   @derived begin
@@ -170,19 +172,15 @@ plotgrid!(
 
 neural_ode_model = @model begin
   @param begin
-    mlp ∈ MLPDomain(3, 6, 6, (3, identity); reg=L1(1.0; output=false))    # neural network with 2 inputs and 1 output
-    tvR₀ ∈ RealDomain(; lower=0)
+    mlp ∈ MLPDomain(3, 6, 6, (3, identity); reg=L2(1.0))    # neural network with 2 inputs and 1 output
+    R₀ ∈ RealDomain(; lower=0)
     σ ∈ RealDomain(; lower=0)                       # residual error
-  end
-  @pre begin
-    mlp_ = mlp 
-    R₀ = tvR₀
   end
   @init R = R₀
   @dynamics begin
-    Depot' = mlp_(Depot, Central, R)[1]
-    Central' = mlp_(Depot, Central, R)[2]
-    R' = mlp_(Depot, Central, R)[3]
+    Depot' = mlp(Depot, Central, R)[1]
+    Central' = mlp(Depot, Central, R)[2]
+    R' = mlp(Depot, Central, R)[3]
   end
   @derived begin
     Outcome ~ @. Normal(R, abs(R) * σ)
@@ -220,25 +218,18 @@ plotgrid!(
 
 ude_model = @model begin
   @param begin
-    mlp ∈ MLPDomain(2, 6, 6, (1, identity); reg=L1(1.0))    # neural network with 2 inputs and 1 output
-    tvKa ∈ RealDomain(; lower=0)                    # typical value of absorption rate constant
-    tvCL ∈ RealDomain(; lower=0)
-    tvVc ∈ RealDomain(; lower=0)
-    tvR₀ ∈ RealDomain(; lower=0)
+    mlp ∈ MLPDomain(2, 6, 6, (1, identity); reg=L2(1.0))    # neural network with 2 inputs and 1 output
+    Ka ∈ RealDomain(; lower=0)                    # typical value of absorption rate constant
+    CL ∈ RealDomain(; lower=0)
+    Vc ∈ RealDomain(; lower=0)
+    R₀ ∈ RealDomain(; lower=0)
     σ ∈ RealDomain(; lower=0)                       # residual error
-  end
-  @pre begin
-    mlp_ = only ∘ mlp # equivalent to (args...) -> only(mlp(args...))
-    CL = tvCL
-    Vc = tvVc
-    Ka = tvKa
-    R₀ = tvR₀
   end
   @init R = R₀
   @dynamics begin
     Depot' = -Ka * Depot                                # known
     Central' = Ka * Depot - (CL / Vc) * Central
-    R' = mlp_(Central / Vc, R)
+    R' = mlp(Central / Vc, R)[1]
   end
   @derived begin
     Outcome ~ @. Normal(R, abs(R) * σ)
@@ -267,7 +258,7 @@ plotgrid!(
 
 ude_model_knowledge = @model begin
   @param begin
-    mlp ∈ MLPDomain(1, 6, 6, (1, identity); reg=L1(1))    # neural network with 2 inputs and 1 output
+    mlp ∈ MLPDomain(1, 6, 6, (1, identity); reg=L2(1))    # neural network with 2 inputs and 1 output
     tvKa ∈ RealDomain(; lower=0)                    # typical value of absorption rate constant
     tvCL ∈ RealDomain(; lower=0)
     tvVc ∈ RealDomain(; lower=0)
@@ -330,40 +321,37 @@ plotgrid!(pred_datamodel_b; pred=(; color=(:black, 0.4), label="Datamodel"), ipr
 
 data_model_heterogeneous = @model begin
   @param begin
-    tvKa ∈ RealDomain()
-    tvCL ∈ RealDomain()
-    tvVc ∈ RealDomain()
-    tvSmax ∈ RealDomain()
-    tvn ∈ RealDomain()
-    tvSC50 ∈ RealDomain()
-    tvKout ∈ RealDomain()
-    tvKin ∈ RealDomain()
+    Ka ∈ RealDomain()
+    CL ∈ RealDomain()
+    Vc ∈ RealDomain()
+    Smax ∈ RealDomain()
+    n ∈ RealDomain()
+    SC50 ∈ RealDomain()
+    Kout ∈ RealDomain()
+    Kin ∈ RealDomain()
     σ ∈ RealDomain()
   end
   @random begin
     η ~ MvNormal(5, 0.2)
   end
   @pre begin
-    Smax = tvSmax * exp(η[1])
-    SC50 = tvSC50 * exp(η[2])
-    Ka = tvKa * exp(η[3])
-    Vc = tvVc * exp(η[4])
-    Kout = tvKout * exp(η[5])
-    Kin = tvKin
-    CL = tvCL
-    n = tvn
-  end
+    Smaxᵢ = Smax * exp(η[1])
+    SC50ᵢ = SC50 * exp(η[2])
+    Kaᵢ = Ka * exp(η[3])
+    Vcᵢ = Vc * exp(η[4])
+    Koutᵢ = Kout * exp(η[5])
+   end
   @init begin
-    R = Kin / Kout
+    R = Kin / Koutᵢ
   end
   @vars begin
-    cp = max(Central / Vc, 0.0)
-    EFF = Smax * cp^n / (SC50^n + cp^n)
+    cp = max(Central / Vcᵢ, 0.0)
+    EFF = Smaxᵢ * cp^n / (SC50ᵢ^n + cp^n)
   end
   @dynamics begin
-    Depot' = -Ka * Depot
-    Central' = Ka * Depot - (CL / Vc) * Central
-    R' = Kin * (1 + EFF) - Kout * R
+    Depot' = -Kaᵢ * Depot
+    Central' = Kaᵢ * Depot - (CL / Vcᵢ) * Central
+    R' = Kin * (1 + EFF) - Koutᵢ * R
   end
   @derived begin
     Outcome ~ @. Normal(R, σ)
@@ -449,14 +437,14 @@ plotgrid(pred)
 
 scaling = 1e4
 parameters_scaled = (;
-  tvKa=0.5,
-  tvCL=1.0,
-  tvVc=1.0,
-  tvSmax=1.9,
-  tvn=1.5,
-  tvSC50=0.05 * scaling,
-  tvKout=2.2,
-  tvKin=0.8 * scaling,
+  Ka=0.5,
+  CL=1.0,
+  Vc=1.0,
+  Smax=1.9,
+  n=1.5,
+  SC50=0.05 * scaling,
+  Kout=2.2,
+  Kin=0.8 * scaling,
   σ=0.02 
 )
 
@@ -519,25 +507,18 @@ derivative(softplus, 1e3)
 
 model_softplus = @model begin
   @param begin
-    mlp ∈ MLPDomain(2, 6, 6, (1, identity, false); reg=L1(1), act=softplus)
-    tvCL ∈ RealDomain(; lower=0)
-    tvVc ∈ RealDomain(; lower=0)
-    tvKa ∈ RealDomain(; lower=0)
-    tvR₀ ∈ RealDomain(; lower=0, init=1e3)
+    mlp ∈ MLPDomain(2, 6, 6, (1, identity, false); reg=L2(1.), act=softplus)
+    CL ∈ RealDomain(; lower=0)
+    Vc ∈ RealDomain(; lower=0)
+    Ka ∈ RealDomain(; lower=0)
+    R₀ ∈ RealDomain(; lower=0, init=1e3)
     σ ∈ RealDomain(; lower=0)
-  end
-  @pre begin
-    mlp_ = only ∘ mlp
-    CL = tvCL
-    Vc = tvVc
-    Ka = tvKa
-    R₀ = tvR₀
   end
   @init R = R₀
   @dynamics begin
     Depot' = -Ka * Depot
     Central' = Ka * Depot - (CL / Vc) * Central
-    R' = mlp_(Central/Vc, R)
+    R' = mlp(Central/Vc, R)[1]
   end
   @derived begin
     Outcome ~ @. Normal(R, σ)
@@ -586,25 +567,19 @@ lines(-10000:100:10000, softplus.(-10000:100:10000))
 
 model_rescale = @model begin
   @param begin
-    mlp ∈ MLPDomain(2, 6, 6, (1, identity); reg=L1(1))
-    tvCL ∈ RealDomain(; lower=0)
-    tvVc ∈ RealDomain(; lower=0)
-    tvKa ∈ RealDomain(; lower=0)
-    tvR₀ ∈ RealDomain(; lower=0, init=1e3)
+    mlp ∈ MLPDomain(2, 6, 6, (1, identity); reg=L1(1), act=softplus)
+    CL ∈ RealDomain(; lower=0)
+    Vc ∈ RealDomain(; lower=0)
+    Ka ∈ RealDomain(; lower=0)
+    R₀ ∈ RealDomain(; lower=0, init=1e3)
     σ ∈ RealDomain(; lower=0)
   end
-  @pre begin
-    mlp_ = only ∘ mlp
-    CL = tvCL
-    Vc = tvVc
-    Ka = tvKa
-    R₀ = tvR₀
-  end
+
   @init R = R₀
   @dynamics begin
     Depot' = -Ka * Depot
     Central' = Ka * Depot - (CL / Vc) * Central
-    R' = mlp_(Central/(Vc*1e4), R/1e4) * 1e4
+    R' = mlp(Central/(Vc*1e4), R/1e4)[1] * 1e4
   end
   @derived begin
     Outcome ~ @. Normal(R, abs(R) * σ)
