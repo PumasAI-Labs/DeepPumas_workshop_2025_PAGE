@@ -159,7 +159,7 @@ pred_traindata = predict(fpm; obstimes = 0:0.1:24);
 plotgrid(pred_traindata)
 
 ins = inspect(fpm)
-goodness_of_fit(ins)
+goodness_of_fit(ins; observations = [:Outcome])
 
 
 # The model has succeeded in discovering the dynamical model if the individual predictions
