@@ -101,13 +101,13 @@ But if the data quality is a bit off, then data quantity might compensate
 
 sims_new = simobs(
   datamodel_me, 
-  [Subject(; id) for id in 1:10],  # Change the number of patients 
-  (; σ=0.05);                      # Tune the additive noise
-  obstimes=0:0.05:1                # Modify the observation times
+  [Subject(; id) for id in 1:100],  # Change the number of patients 
+  (; σ=0.25);                      # Tune the additive noise
+  obstimes=0:0.25:1                # Modify the observation times
 )
 traindata_new = Subject.(sims_new)
 
-plotgrid(traindata_new)
+plotgrid(traindata_new[1:min(end, 25)])
 
 fpm_me_2 = fit(
   model_me,
