@@ -18,7 +18,8 @@ datamodel_me = @model begin
   @derived Y ~ @. Normal(X, σ)
 end
 
-sims = simobs(datamodel_me, [Subject(; id) for id in 1:200], (; σ=0.05); obstimes=0:0.05:1)
+p_data = (; σ = 0.05)
+sims = simobs(datamodel_me, [Subject(; id) for id in 1:200], p_data; obstimes=0:0.05:1)
 trainpop_me = Subject.(sims[1:100])
 testpop_me = Subject.(sims[101:end])
 
