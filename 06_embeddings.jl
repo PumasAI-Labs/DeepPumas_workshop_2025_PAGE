@@ -1,6 +1,8 @@
+using Pkg
+Pkg.activate(@__DIR__())
+Pkg.resolve()
 
 using DeepPumas
-
 
 using AlgebraOfGraphics
 using CairoMakie
@@ -9,30 +11,16 @@ using DataFrames
 using DataFramesMeta
 using DeepPumas
 using Flux
-using Markdown
-using MultivariateStats
-using PairPlots
-using PrettyTables
 using PumasPlots
-using Pumas.Latexify
+using Latexify
 using Random
+using StatsBase
 using Tables
 using Transformers
 using Transformers.HuggingFace
 using Transformers.TextEncoders
-using QuartoTools
 using TSne
-using QuartoTools: @cache
-const AoG = AlgebraOfGraphics
 
-
-
-using Transformers
-using Transformers.HuggingFace
-using Transformers.TextEncoders
-
-using CSV
-using DataFrames
 
 # Load the patient data
 patient_data = CSV.read(@__DIR__() * "/data_prognostic_text.csv", DataFrame);
@@ -48,7 +36,8 @@ pop = read_pumas(
 train_pop = pop[1:100]
 test_pop = pop[101:200]
 
-
+plotgrid(train_pop[1:6]; observation = :yPK)
+plotgrid(train_pop[1:6]; observation = :yPD)
 
 get_text(s::Pumas.Subject) = s.covariates().Description
 get_text(train_pop[1])
@@ -76,7 +65,6 @@ X_train = mapreduce(get_embedding, hcat, train_pop)
 X_test = mapreduce(get_embedding, hcat, test_pop)
 
 
-using StatsBase
 
 
 ## t-SNE is a stochastic dimension reduction technique for visualizing spatial patterns of the embeddings. You'll get different result each time you run this.
@@ -128,46 +116,37 @@ end
 # Let's go to the NLME modelling then!
 
 
-x_pca[:,1]
+embedding_df = DataFrame(id = getfield.(train_pop, :id), Embeddings_pc = eachcol(x_pca))
+test_embedding_df = DataFrame(id = getfield.(test_pop, :id), Embeddings_pc = eachcol(predict(pca, X_test)))
 
+embedding_df = DataFrame(id = getfield.(train_pop, :id), embeddings = get_embedding.(train_pop))
+test_embedding_df = DataFrame(id = getfield.(test_pop, :id), embeddings = get_embedding.(test_pop))
 
-embedding_df = DataFrame(id = getfield.(:id, train_pop))
-
-@rtransform! patient_data :Embeddings_pc = 
-predict(pca, get_embedding(:Description))
-
-pop = read_pumas(
-    patient_data; 
+pop_embeddings = read_pumas(
+    innerjoin(patient_data, embedding_df; on=:id);
     observations = [:yPK, :yPD],
-    covariates = [:Description, :Score, :Embeddings_pc],
+    covariates = [:Description, :Score, :embeddings],
 )
 
-
-Subject(train_pop[1], covariates = (; embedding = x_pca[:, 1]))
+test_pop_embeddings = read_pumas(
+    innerjoin(patient_data, test_embedding_df; on=:id);
+    observations = [:yPK, :yPD],
+    covariates = [:Description, :Score, :embeddings],
+)
 
 
 model = @model begin
   @param begin
     NN ∈ MLPDomain(5, 6, 5, (1, identity); reg=L2(1.0))
-    # tvKa ∈ RealDomain(; lower=0)
-    # tvCL ∈ RealDomain(; lower=0)
-    # tvVc ∈ RealDomain(; lower=0)
-    # tvR₀ ∈ RealDomain(; lower=0)
-    # ωR₀ ∈ RealDomain(; lower=0)
-    # Ω ∈ PDiagDomain(2)
-    # Ω_nn ∈ PDiagDomain(3)
-    # σ ∈ RealDomain(; lower=0)
-    # σ_pk ∈ RealDomain(; lower=0)
-    # 
-    tvKa ∈ RealDomain()
-    tvCL ∈ RealDomain()
-    tvVc ∈ RealDomain()
-    tvR₀ ∈ RealDomain()
-    ωR₀ ∈ RealDomain()
+    tvKa ∈ RealDomain(; lower=0)
+    tvCL ∈ RealDomain(; lower=0)
+    tvVc ∈ RealDomain(; lower=0)
+    tvR₀ ∈ RealDomain(; lower=0)
+    ωR₀ ∈ RealDomain(; lower=0)
     Ω ∈ PDiagDomain(2)
     Ω_nn ∈ PDiagDomain(3)
-    σ ∈ RealDomain()
-    σ_pk ∈ RealDomain()
+    σ ∈ RealDomain(; lower=0)
+    σ_pk ∈ RealDomain(; lower=0)
   end
   @random begin
     η ~ MvNormal(Ω)
@@ -196,10 +175,111 @@ end
 
 fpm = fit(
   model,
-  trainpop_small,
+  pop_embeddings,
   init_params(model),
   MAP(FOCE());
-  optim_options=(; iterations=300),
-  constantcoef = (; Ω_nn = Diagonal(fill(0.1, 3)))
+  optim_options=(; iterations = 300),
+  constantcoef = (; Ω_nn = I(3))
 )
 
+target = preprocess(fpm; covs = [:embeddings])
+nn = MLPDomain(numinputs(target), 55, 40, (numoutputs(target), identity); backend=:simplechains, act=tanh, reg=L2(5))
+fnn = fit(nn, target; optim_options = (; loss = DeepPumas.l2), training_fraction=1.0)
+
+nn = MLPDomain(numinputs(target), 9, 9, (numoutputs(target), identity); reg=L2(10.0))
+
+fnn = fit(nn, target; training_fraction=0.9, optim_options = (; loss = l2))
+
+augmented_fpm = augment(fpm, fnn)
+
+pred_embedding = simobs(fpm.model, test_pop_embeddings, coef(fpm), fnn(test_pop_embeddings))
+
+pred_augment =
+  predict(augmented_fpm.model, test_pop_embeddings, coef(augmented_fpm); obstimes=0:0.1:24);
+
+pred_original = predict(fpm, test_pop_embeddings; obstimes = 0:0.1:24)
+plotgrid(pred_original[1:6]; ipred=false, pred=(; color=(:red, 0.2), label="No covariate pred"), observation=:yPD)
+plotgrid!(pred_augment[1:6]; ipred=false, pred=(; linestyle=:dash, label = "Embedding pred"), observation = :yPD)
+
+
+### We actually have the data generating model here so we can compare.
+
+datamodel = @model begin
+  @param begin
+      tvKa ∈ RealDomain()
+      tvVc ∈ RealDomain()
+      tvSmax ∈ RealDomain()
+      tvSC50 ∈ RealDomain()
+      tvKout ∈ RealDomain()
+      Kin ∈ RealDomain()
+      CL ∈ RealDomain()
+      n ∈ RealDomain()
+      Ω ∈ PDiagDomain(5)
+      σ_pk ∈ RealDomain()
+      σ_pd ∈ RealDomain()
+  end
+  @random η ~ MvNormal(Ω)
+  @covariates Score
+  @pre begin
+      # s = (Score - 5) / 10
+      Smax = tvSmax * exp(η[1]) + 3 * Score / 5.
+      # Smax = tvSmax * exp((1-c) * η[1] + c * s) 
+      # SC50 = tvSC50 * exp(η[2] + 0.3 * (Score / 5)^0.75)
+      SC50 = tvSC50 * exp(η[2])
+      Ka = tvKa * exp(η[3] + 0.3 * (Score/5)^2 )
+      Vc = tvVc * exp(η[4])
+      Kout = tvKout * exp(η[5] + 0.5 * Score/5)
+  end
+  @init R = Kin / Kout
+  @vars begin
+      cp = abs(Central / Vc)
+      EFF = Smax * cp^n / (SC50^n + cp^n)
+  end
+  @dynamics begin
+      Depot' = -Ka * Depot
+      Central' = Ka * Depot - (CL / Vc) * Central
+      R' = Kin * (1 + EFF) - Kout * R
+  end
+  @derived begin
+      yPK ~ @. Normal(Central ./ Vc, σ_pk)
+      yPD ~ @. Normal(R, σ_pd)
+  end
+end
+
+data_params = (;
+  tvKa = 0.5,
+  tvVc = 1.0,
+  tvSmax = 0.9,
+  tvSC50 = 0.02,
+  tvKout = 1.2,
+  Kin = 1.2,
+  CL = 1.0,
+  n = 1.0,
+  Ω = Diagonal(fill(1e-2, 5)),
+  σ_pk = 3e-2,
+  σ_pd = 1e-1,
+)
+
+pred_data = predict(datamodel, test_pop_embeddings, data_params; obstimes = 0:0.1:25)
+plotgrid!(pred_data; ipred=false, pred = (; label = "DataModel pred", color=:grey), observation = :yPD)
+
+
+## Convert predictions to dataframes for some custom plotting
+df_pred_data = DataFrame(predict(datamodel, test_pop_embeddings, data_params))
+df_pred_original = DataFrame(predict(fpm, test_pop_embeddings))
+df_pred_embeddings = DataFrame(predict(augmented_fpm, test_pop_embeddings))
+
+
+_df = vcat(df_pred_embeddings, df_pred_original, df_pred_data; source = :Model => [:Embedding, :Original, :DataGenerating], cols=:union)
+__df = @by dropmissing(_df, :yPD) :Model :r2 = cor(:yPD, :yPD_pred).^2
+
+begin
+  spec = data(_df) * mapping(:yPD_pred => "Population prediction", :yPD=> "PD Observation")
+  spec2 = data(hcat(__df, DataFrame(;x=fill(0.5,3), y=fill(3.,3)))) * mapping(:x, :y; text = :r2 => (x -> verbatim("r²: $(round(x, digits=2))" ))) * visual(Makie.Text)
+  layoutspec = mapping(col=:Model=>sorter(:Original, :Embedding, :DataGenerating))
+  fig = draw((spec + spec2)*layoutspec; axis = (; width=200, height=200))
+  Label(fig.figure[2,:], "Predicted yPD")
+  Label(fig.figure[:,0], "Observed yPD", rotation=pi/2)
+  Makie.resize_to_layout!(fig.figure)
+  fig
+end
