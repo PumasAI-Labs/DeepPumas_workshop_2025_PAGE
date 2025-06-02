@@ -3,7 +3,7 @@ using StableRNGs
 using CairoMakie
 using Serialization
 using Latexify
-using PumasPlots
+using PumasUtilities
 set_mlp_backend(:staticflux)
 set_theme!(deep_light())
 
@@ -23,6 +23,7 @@ datamodel = @model begin
     tvKout ∈ RealDomain(; lower=0, init=1.2)
     Ω ∈ PDiagDomain(; init=fill(0.05, 5))
     σ ∈ RealDomain(; lower=0, init=5e-2)
+    σ_pk ∈ RealDomain(; lower=0, init=5e-2)
   end
   @random begin
     η ~ MvNormal(Ω)
@@ -42,8 +43,8 @@ datamodel = @model begin
     R = Kin / Kout
   end
   @vars begin
-    cp = max(Central / Vc, 0.0)
-    EFF = Smax * cp^n / (SC50^n + cp^n)
+    _cp = max(Central / Vc, 0.0)
+    EFF = Smax * _cp^n / (SC50^n + _cp^n)
   end
   @dynamics begin
     Depot' = -Ka * Depot
@@ -51,7 +52,8 @@ datamodel = @model begin
     R' = Kin * (1 + EFF) - Kout * R
   end
   @derived begin
-    Outcome ~ @. Normal(R, σ)
+    cp ~ @. Normal(Central/Vc, σ_pk)
+    dv ~ @. Normal(R, σ)
   end
 end
 
@@ -67,7 +69,8 @@ p_data = (;
   tvSC50=0.02,
   tvKout=2.2,
   Ω=Diagonal(fill(0.05, 5)),
-  σ=0.1                         ## <-- tune the observational noise of the data here
+  σ=0.1,                         ## <-- tune the observational noise of the data here
+  σ_pk=0.02                         ## <-- tune the observational noise of the data here
 )
 dr = DosageRegimen(0.5, ii=8, addl=1)
 pop = synthetic_data(
@@ -96,7 +99,8 @@ trainpop_large = pop[1:1000]
 testpop = pop[1001:end]
 
 pred_datamodel = predict(datamodel, testpop, p_data; obstimes=0:0.1:24);
-plotgrid(pred_datamodel)
+plotgrid(pred_datamodel; observation = :cp)
+plotgrid(pred_datamodel; observation = :dv)
 
 
 ############################################################################################
@@ -112,7 +116,8 @@ model = @model begin
     # Define a multi-layer perceptron (a neural network) which maps from 5 inputs
     # (2 state variables + 3 individual parameters) to a single output.
     # Apply L2 regularization (equivalent to a Normal prior).
-    NN ∈ MLPDomain(5, 6, 5, (1, identity); reg=L2(1.0))
+    # NN ∈ MLPDomain(5, 6, 5, (1, identity); reg=L2(1.0))
+      NN ∈ MLPDomain(5, 7, 7, (1, identity); reg = L2(1.0))
     tvKa ∈ RealDomain(; lower=0)
     tvCL ∈ RealDomain(; lower=0)
     tvVc ∈ RealDomain(; lower=0)
@@ -121,6 +126,7 @@ model = @model begin
     Ω ∈ PDiagDomain(2)
     Ω_nn ∈ PDiagDomain(3)
     σ ∈ RealDomain(; lower=0)
+    σ_pk ∈ RealDomain(; lower=0)
   end
   @random begin
     η ~ MvNormal(Ω)
@@ -151,7 +157,8 @@ model = @model begin
     R' = iNN(Central / Vc, R)[1]
   end
   @derived begin
-    Outcome ~ @. Normal(R, σ)
+    cp ~ @. Normal(Central/Vc, σ_pk)
+    dv ~ @. Normal(R, σ)
   end
 end
 
@@ -161,18 +168,20 @@ fpm = fit(
   init_params(model),
   MAP(FOCE());
   # Some extra options to speed up the demo at the expense of a little accuracy:
-  optim_options=(; iterations=300),
-  constantcoef = (; Ω_nn = Diagonal(fill(0.1, 3)))
+  optim_options=(; iterations=200),
+  constantcoef = (; Ω_nn = I(3))
 )
-# Like any good TV-chef:
+
 # serialize(@__DIR__() * "/assets/deep_pumas_fpm.jls", fpm)
 # fpm = deserialize(@__DIR__() * "/assets/deep_pumas_fpm.jls")
+
 fpm.optim
 
 # The model has succeeded in discovering the dynamical model if the individual predictions
 # match the observations of the test population well.
 pred = predict(fpm, testpop; obstimes=0:0.1:24);
-plotgrid(pred)
+plotgrid(pred; observation = :cp)
+plotgrid(pred; observation = :dv)
 
 ############################################################################################
 ## 'Augment' the model to predict heterogeneity from data
@@ -185,28 +194,30 @@ plotgrid(pred)
 # distribution.
 target = preprocess(fpm)
 
-nn = MLPDomain(numinputs(target), 7, 7, 7, (numoutputs(target), identity); reg=L2(1.0))
+nn = MLPDomain(numinputs(target), 9, 9, (numoutputs(target), identity); reg=L2(10.0))
 
-fnn = fit(nn, target)
-augmented_fpm = augment(fpm, fnn)
+fnn = fit(nn, target; training_fraction=0.9, optim_options = (; loss = l2))
+
+@time augmented_fpm = augment(fpm, fnn)
 
 pred_augment =
   predict(augmented_fpm.model, testpop, coef(augmented_fpm); obstimes=0:0.1:24);
 plotgrid(
   pred_datamodel;
   ipred=false,
-  pred=(; color=(:black, 0.4), label="Best possible pred")
+  pred=(; color=(:black, 0.4), label="Best possible pred"),
+  observation = :dv
 )
-plotgrid!(pred; ipred=false, pred=(; color=(:red, 0.2), label="No covariate pred"))
-plotgrid!(pred_augment; ipred=false, pred=(; linestyle=:dash))
+plotgrid!(pred; ipred=false, pred=(; color=(:red, 0.2), label="No covariate pred"), observation=:dv)
+plotgrid!(pred_augment; ipred=false, pred=(; linestyle=:dash), observation = :dv)
 
 pred_datamodel
 
 # Define a function to compare pred values so that we can see how close our preds were to
 # the preds of the datamodel
 function pred_residuals(pred1, pred2)
-  mapreduce(hcat, pred1, pred2) do p1, p2
-    p1.pred.Outcome .- p2.pred.Outcome
+  mapreduce(vcat, pred1, pred2) do p1, p2
+    p1.pred.dv .- p2.pred.dv
   end
 end
 
@@ -218,23 +229,6 @@ mean(abs, residuals)
 residuals_base = pred_residuals(pred_datamodel, pred)
 mean(abs, residuals_base)
 
-# was that an appropriate regularization? We can automatically test a few
-# different ones by calling hyperopt rather than fit.
-
-ho = hyperopt(nn, target)
-augmented_fpm = augment(fpm, ho)
-
-pred_augment_ho =
-  predict(augmented_fpm.model, testpop, coef(augmented_fpm); obstimes=0:0.1:24);
-plotgrid(
-  pred_datamodel;
-  ipred=false,
-  pred=(; color=(:black, 0.4), label="Best possible pred")
-)
-plotgrid!(pred; ipred=false, pred=(; color=(:red, 0.2), label="No covariate pred"))
-plotgrid!(pred_augment_ho; ipred=false, pred=(; linestyle=:dash))
-
-mean(abs, pred_residuals(pred_datamodel, pred_augment_ho))
 
 # We should now have gotten some improvement over not using covariates at all. However,
 # training covariate models well requires more data than fitting the neural networks
@@ -244,7 +238,8 @@ mean(abs, pred_residuals(pred_datamodel, pred_augment_ho))
 # instead.
 
 target_large = preprocess(model, trainpop_large, coef(fpm), FOCE())
-fnn_large = hyperopt(nn, target_large)
+nn = MLPDomain(numinputs(target), 9, 9, (numoutputs(target), identity); reg=L2(1e-3))
+fnn_large = fit(nn, target_large; training_fraction=0.9, optim_options = (; loss = l2))
 augmented_fpm_large = augment(fpm, fnn_large)
 
 
@@ -253,10 +248,11 @@ pred_augment_large =
 plotgrid(
   pred_datamodel;
   ipred=false,
-  pred=(; color=(:black, 0.4), label="Best possible pred")
+  pred=(; color=(:black, 0.4), label="Best possible pred"),
+  observation = :dv
 )
-plotgrid!(pred; ipred=false, pred=(; color=(:red, 0.2), label="No covariate pred"))
-plotgrid!(pred_augment_large; ipred=false, pred=(; linestyle=:dash))
+plotgrid!(pred; ipred=false, pred=(; color=(:red, 0.2), label="No covariate pred"), observation = :dv)
+plotgrid!(pred_augment_large; ipred=false, pred=(; linestyle=:dash), observation = :dv)
 
 # residuals between the preds of no covariate model and the preds of the datamodel 
 residuals_large = pred_residuals(pred_datamodel, pred_augment_large)
@@ -279,11 +275,12 @@ fpm_refit_Ω = fit(
   trainpop_large,
   coef(augmented_fpm_large),
   MAP(FOCE()); 
-  constantcoef = Base.structdiff(coef(augmented_fpm_large), (; Ω_nn=nothing)),
+  constantcoef = Tuple(setdiff(keys(coef(augmented_fpm_large)), (:Ω_nn, :Ω))),
   optim_options = (; time_limit=3*60)
 )
 
 coef(fpm_refit_Ω).Ω_nn ./ coef(augmented_fpm).Ω_nn
+coef(fpm_refit_Ω).Ω ./ coef(augmented_fpm).Ω
 
 plotgrid(
   simobs(augmented_fpm.model, testpop, coef(augmented_fpm)); 
@@ -295,6 +292,10 @@ plotgrid!(
   sim=(; color=Cycled(2), label = "Refitted Ω_nn"),
 )
 
+_vpc = vpc(fpm_refit_Ω; observations = [:dv])
+vplt = vpc_plot(_vpc, include_legend = false)
+figurelegend(vplt, position=:b, orientation=:horizontal, nbanks=3, tellwidth=true)
+vplt
 
 # Finally, when we don't have the luxury of just increasing the size of our population to
 # 1000, there's still one more thing one can do to improve what we can get out of the 50
