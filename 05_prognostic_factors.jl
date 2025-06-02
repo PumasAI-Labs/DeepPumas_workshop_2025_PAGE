@@ -4,6 +4,7 @@ using CairoMakie
 using Serialization
 using Latexify
 using PumasPlots
+set_mlp_backend(:staticflux)
 set_theme!(deep_light())
 
 ############################################################################################
