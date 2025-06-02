@@ -12,7 +12,7 @@ fit_naivepooled = fit(model, pop, params, NaivePooled(); omegas = (:Ω,))
 fit_laplace = fit(model, pop, params, LaplaceI())
 
 # Fit a the model with FOCE and fixed parameters
-fit_foce_fixed = fit(model, pop, params, FOCE(); constantcoef = (; tvcl = 1.0))
+fit_foce_fixed = fit(model, pop, params, FOCE(); constantcoef = (:tvcl,))
 
 # Get a NamedTuple of the estimated parameter values
 coef(fit_foce)

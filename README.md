@@ -1,11 +1,11 @@
-# Pumas-AI DeepPumas Workshop
+# PumasAI DeepPumas Workshop
 
 [![CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](http://creativecommons.org/licenses/by-sa/4.0/)
 
 Often scientists may not know the exact biological mechanisms dictating the data signatures.
 For example, which risk factors drive responders to a cancer treatment or how a biomarker is related to clinical outcomes.
 Current data science methods require big data, and they ignore prior knowledge of the problem at hand.
-Pumas-AI is poised to disrupt this.
+PumasAI is poised to disrupt this.
 DeepPumas enables seamless integration of domain-specific knowledge and data-science methodology,
 reducing dependence on data size and enabling faster decision-making.
 
