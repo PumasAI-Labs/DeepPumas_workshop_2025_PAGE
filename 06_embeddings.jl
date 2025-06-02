@@ -23,9 +23,7 @@ using TSne
 
 
 # Load the patient data
-patient_data = CSV.read(@__DIR__() * "/data_prognostic_text.csv", DataFrame);
-
-@rtransform! patient_data :Description = replace(:Description, "\""=>"")
+patient_data = CSV.read(@__DIR__() * "/data_text.csv", DataFrame);
 
 pop = read_pumas(
     patient_data; 
@@ -115,9 +113,6 @@ end
 
 # Let's go to the NLME modelling then!
 
-
-embedding_df = DataFrame(id = getfield.(train_pop, :id), Embeddings_pc = eachcol(x_pca))
-test_embedding_df = DataFrame(id = getfield.(test_pop, :id), Embeddings_pc = eachcol(predict(pca, X_test)))
 
 embedding_df = DataFrame(id = getfield.(train_pop, :id), embeddings = get_embedding.(train_pop))
 test_embedding_df = DataFrame(id = getfield.(test_pop, :id), embeddings = get_embedding.(test_pop))
