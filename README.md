@@ -1,11 +1,11 @@
-# Pumas-AI DeepPumas Workshop
+# PumasAI DeepPumas Workshop
 
 [![CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](http://creativecommons.org/licenses/by-sa/4.0/)
 
 Often scientists may not know the exact biological mechanisms dictating the data signatures.
 For example, which risk factors drive responders to a cancer treatment or how a biomarker is related to clinical outcomes.
 Current data science methods require big data, and they ignore prior knowledge of the problem at hand.
-Pumas-AI is poised to disrupt this.
+PumasAI is poised to disrupt this.
 DeepPumas enables seamless integration of domain-specific knowledge and data-science methodology,
 reducing dependence on data size and enabling faster decision-making.
 
@@ -21,27 +21,23 @@ quality by design manufacturing, clinical research,
 and market research to individualized patient management,
 DeepPumas is not an incremental improvement but a game-changer.
 
-The workshop is split in two, where the first day is dedicated to learning
-the powerful Pumas software for pharmacometric modeling.
-During the second day,
-we learn about machine learning and how it can be
-seamlessly embedded in pharmacometric models using DeepPumas.
+During the first day we will learn
 
-## How to contribute
+- How to use Pumas for pharmacometric modeling
+- Basics of machine learning
+- Neural ODEs and universal differential equations
 
-We use [Material for MkDocs](https://github.com/squidfunk/mkdocs-material)
-(MIT License) as the static site generator.
-
-1. Clone the repository
-1. Install Material for MkDocs with `pip install mkdocs-material`
-1. Create or review content
-1. Preview the site with `mkdocs serve`
-1. Make a Pull Request
+During the second day we will learn
+- How to leverage random effects to deal with longitudinal data
+- How NLME models are closely related to generative AI
+- How to leverage machine learning in NLME models - DeepNLME
+- How to use DeepPumas for data-driven discovery of predictive factors
 
 ## Authors
 
 - Niklas Korsbo - <niklas@pumas.ai>
 - Mohamed Tarek - <mohamed@pumas.ai>
+- Andreu Vall
 - Jose Storopoli
 
 ## License
