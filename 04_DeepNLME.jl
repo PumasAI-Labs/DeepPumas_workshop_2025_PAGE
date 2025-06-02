@@ -2,6 +2,7 @@ using DeepPumas
 using CairoMakie
 using StableRNGs
 using PumasPlots
+set_mlp_backend(:staticflux)
 set_theme!(deep_light())
 
 ############################################################################################
@@ -21,6 +22,7 @@ datamodel = @model begin
         tvKin ∈ RealDomain()
         Ω ∈ PDiagDomain(5)
         σ ∈ RealDomain()
+        σ_pk ∈ RealDomain()
     end
     @random begin
         η ~ MvNormal(Ω)
@@ -39,8 +41,8 @@ datamodel = @model begin
         R = Kin / Kout
     end
     @vars begin
-        cp = max(Central / Vc, 0.)
-        EFF = Smax * cp^n / (SC50^n + cp^n)
+        _cp = max(Central / Vc, 0.)
+        EFF = Smax * _cp^n / (SC50^n + _cp^n)
     end
     @dynamics begin
         Depot' = -Ka * Depot
@@ -48,7 +50,8 @@ datamodel = @model begin
         R' = Kin * (1 + EFF) - Kout * R
     end
     @derived begin
-        Outcome ~ @. Normal(R, σ)
+        cp ~ @. Normal(Central/Vc, σ_pk)
+        dv ~ @. Normal(R, σ)
     end
 end
 
@@ -62,7 +65,8 @@ p_data = (;
     tvKout = 2.2,
     tvKin = 0.8,
     Ω = Diagonal(fill(0.1, 5)),
-    σ = 0.1                         ## <-- tune the observational noise of the data here
+    σ = 0.1,                ## <-- tune the observational noise of the data here
+    σ_pk = 0.02             ## <-- tune the observational noise of the data here
 )
 
 obstimes = 0:24
@@ -88,7 +92,8 @@ testpop = pop[(ntrain+1):end]
 ## Visualize the synthetic data and the predictions of the data-generating model.
 ## The specified `obstimes` is just to get a denser timecourse so that plots look smooth.
 pred_datamodel = predict(datamodel, testpop, p_data; obstimes = 0:0.1:24);
-plotgrid(pred_datamodel)
+plotgrid(pred_datamodel; observation = :cp)
+plotgrid(pred_datamodel; observation = :dv)
 
 
 ############################################################################################
@@ -111,6 +116,7 @@ model = @model begin
         ωR₀  ∈ RealDomain(; lower = 0)
         Ω ∈ PDiagDomain(2)
         σ ∈ RealDomain(; lower = 0)
+        σ_pk ∈ RealDomain(; lower = 0)
     end
     @random begin
         η ~ MvNormal(Ω)
@@ -141,7 +147,8 @@ model = @model begin
         R' = iNN(Central/Vc, R)[1]
     end
     @derived begin
-        Outcome ~ @. Normal(R, σ)
+        cp ~ @. Normal(Central/Vc, σ_pk)
+        dv ~ @. Normal(R, σ)
     end
 end
 
@@ -151,21 +158,21 @@ fpm = fit(
     init_params(model),
     MAP(FOCE());
     # Some extra options to speed up the demo at the expense of a little accuracy:
-    optim_options = (; iterations=300, f_tol=1e-6),
+    optim_options = (; iterations=200, f_tol=1e-6),
 )
 # Note that we only used 10 patients to train the model (unless you've tinkered with the code - something we encourage!).
 
 pred_traindata = predict(fpm; obstimes = 0:0.1:24);
-plotgrid(pred_traindata)
+plotgrid(pred_traindata; observation=:dv)
 
 ins = inspect(fpm)
-goodness_of_fit(ins; observations = [:Outcome])
+goodness_of_fit(ins; observations = [:dv])
 
 
 # The model has succeeded in discovering the dynamical model if the individual predictions
 # match the observations well for test data.
 pred = predict(model, testpop, coef(fpm); obstimes = 0:0.1:24);
-plotgrid(pred; ylabel="Outcome (Test data)")
+plotgrid(pred; ylabel="Outcome (Test data)", observation = :dv)
 
 
 
@@ -177,11 +184,27 @@ dr2 = DosageRegimen(0.3, ii=3, addl=2)
 dr3 = DosageRegimen(1.5, time=25, ii=8, addl=1)
 testpop2 = synthetic_data(datamodel, DosageRegimen(dr2, dr3), p_data; nsubj = 12, obstimes=0:2:48)
 pred2 = predict(model, testpop2, coef(fpm); obstimes = 0:0.01:48);
-plotgrid(pred2)
+plotgrid(pred2; observation = :dv)
 
 # We can overlay the data-generating model ipreds of this out-of-sample data
 pred_truth = predict(datamodel, testpop2, p_data; obstimes = 0:0.01:48);
-plotgrid!(pred_truth; pred=false, ipred=(; color=Cycled(3), label="DataModel ipred"))
+plotgrid!(pred_truth; pred=false, ipred=(; color=Cycled(3), label="DataModel ipred"), observation=:dv)
+
+
+coef(fpm).tvKa
+p_data.tvKa
+
+coef(fpm).tvCL
+p_data.tvCL
+
+coef(fpm).tvVc
+p_data.tvVc
+
+coef(fpm).σ
+p_data.σ
+
+coef(fpm).σ_pk
+p_data.σ_pk
 
 
 #=
