@@ -168,10 +168,10 @@ data(unique(df_pred_s2, :id)) *
 The conditional pushforwards flatten — η-dependence collapses, the mode
 shift is carried entirely by μ_center.  EBE η stops splitting by mode.
 
-Foreshadow (Day 2 afternoon): `DeepPumas.augment` is the post-hoc version
-of this — adding a covariate to a fitted model to absorb structure that
-η was carrying.  Augment doesn't refit the pushforward, though, so it can
-only shift η, not simplify the NN itself.
+Foreshadow (Day 2 afternoon): `DeepPumas.augment` is the post-hoc analogue —
+add a covariate to a fitted model to absorb structure η was carrying.  It
+keeps the original η-prior and only shifts its mean by g(c), so it has
+some specific failure modes we'll come back to.
 =#
 
 
