@@ -9,23 +9,13 @@ set_mlp_backend(:staticflux)
 set_theme!(deep_light(); backgroundcolor=:white)
 
 #=
-# Latent pushforward — how NLME random effects transform distributions
+# Latent pushforward — NLME random effects as distribution transformers
 
-Day 1 showed how a neural network can sit *inside a dynamical system*
-(NeuralODEs, UDEs). This script explores the other half of the DeepNLME
-machinery: how a neural network transforms the *random-effect distribution*.
+A neural network transforms the η distribution itself.  Three stages:
 
-The story is built in three stages:
-
-  1. Pure pushforward.  η ~ N(0, 1)  →  bimodal observations via an NN.
-  2. With a covariate.  c absorbs the bimodality; the residual pushforward
-     becomes simple.
-  3. With time.         The pushforward depends on t — the same machinery
-                        gives a different distribution at each time point,
-                        bridging us back to the dynamical case.
-
-Throughout, the random effect η is just N(0, 1).  All the structure in the
-output distribution is learned by the neural network.
+  1. Pure pushforward — η ~ N(0,1) → bimodal observations via NN
+  2. With a covariate — μ_center absorbs the bimodality; latent simplifies
+  3. With time         — same machinery, different marginal at each t
 =#
 
 
@@ -33,22 +23,13 @@ output distribution is learned by the neural network.
 ## Stage 1 — Pure pushforward: η  →  bimodal y
 ############################################################################################
 
-#=
-The data has a bimodal marginal: each subject sits in group A or B (group mean
-μ_center = ±1), with some between-subject variability (BSV) around that group
-mean, plus Gaussian observation noise on each measurement.  The fit model
-never sees which group a subject is in — it only has a single Gaussian random
-effect to work with.
-
-The neural network must therefore learn to *transform* N(0, 1) into the
-bimodal observation distribution.
-=#
+# Truth: each subject sits at μ_center = ±1, plus BSV ω, plus per-obs noise.
+# The fit model never sees μ_center — the NN must learn to push N(0,1) into
+# the bimodal subject-mean distribution.
 
 Random.seed!(42)
 nsubj = 400
 
-# Truth: each subject's group mean is ±1, plus BSV around that mean, plus
-# per-observation Gaussian noise.  The fit model will never see μ_center.
 truth_pushforward = @model begin
   @param begin
     σ ∈ RealDomain(; lower=0., init=0.1)
@@ -102,9 +83,7 @@ nn = coef(fpm_s1).NN
 lines(-3:0.01:3, η -> first(nn(η));
       axis=(; xlabel="η", ylabel="NN(η)", title="Learned pushforward NN(η)"))
 
-# (b) Pushforward comparison: fitted NN(η) vs the truth's μ distribution.
-#     Both are at the same hierarchical level — noiseless subject means.
-#     A perfect fit recovers the bimodal mixture induced by μ_center ± ω·η_true.
+# (b) fitted NN(η) vs the truth's μ distribution (both noiseless subject means).
 nsamp   = 10_000
 μ_model = first.(nn.(randn(nsamp)))
 μ_truth = rand((-1.0, 1.0), nsamp) .+ p_truth.ω .* randn(nsamp)   # matches truth ω=0.2
@@ -121,12 +100,8 @@ data(unique(df_pred, :id)) *
   mapping(:η, color=:μ_center => nonnumeric) * AlgebraOfGraphics.density(datalimits=extrema) |> draw
 
 #=
-The NN learns a near-step function of η: small slope around μ = ±1, sharp
-transition through zero.  That is exactly the pushforward needed to turn a
-Gaussian prior into a bimodal marginal.
-
-This is the core DeepNLME claim made visible: with a sufficiently expressive
-pushforward, simple latents can encode complex marginal structure.
+The NN learned a near-step function: tight at μ ≈ ±1, sharp through zero.
+That's the pushforward turning N(0,1) into the bimodal marginal.
 =#
 
 
@@ -134,15 +109,9 @@ pushforward, simple latents can encode complex marginal structure.
 ## Stage 2 — A covariate explains the bimodality
 ############################################################################################
 
-#=
-Now suppose we know which mode each subject is in.  We add a binary covariate
-c ∈ {0, 1} indicating the mode, and let the NN see it alongside η.
-
-Question: what happens to the learned pushforward?
-
-Prediction: c carries the bulk of the structure, and the NN's dependence on
-η becomes much milder — a near-Gaussian residual within each mode.
-=#
+# Now expose μ_center to the NN.  With the covariate carrying the mode,
+# η no longer has to encode it — the conditional pushforward should flatten
+# and the EBEs should stop clustering by mode.
 
 model_s2 = @model begin
   @param begin
@@ -155,11 +124,10 @@ model_s2 = @model begin
   @derived y ~ @. Normal(μ, σ)
 end
 
-pop_s1
 fpm_s2 = fit(
   model_s2,
   pop_s1,
-  sample_params(model_s2),
+  init_params(model_s2),
   MAP(FOCE());
   optim_options=(; iterations=300),
 )
@@ -176,9 +144,7 @@ fig
 
 
 
-# (b) Pushforward comparison: fitted NN(η | c) vs the truth's μ distribution.
-#     Both are at the same hierarchical level — noiseless subject means.
-#     A perfect fit recovers the bimodal mixture induced by μ_center ± ω·η_true.
+# (b) fitted NN(η | μ_center) vs the truth's μ distribution, faceted by mode.
 nsamp   = 10_000
 μ_sample = rand([-1, 1], nsamp)
 μ_model = first.(nn2.(randn(nsamp), μ_sample))
@@ -192,20 +158,20 @@ df_μ = DataFrame(
 
 data(df_μ) * mapping(:μ; color=:source, row=:c) * AlgebraOfGraphics.density() |> draw
 
+# (c) EBE η — should now overlap across modes, since μ_center carries the
+# structure that η carried in Stage 1.  Compare to Stage 1's panel (c).
+df_pred_s2 = DataFrame(predict(fpm_s2))
+data(unique(df_pred_s2, :id)) *
+  mapping(:η, color=:μ_center => nonnumeric) * AlgebraOfGraphics.density(datalimits=extrema) |> draw
 
 #=
-The two conditional pushforwards sit near μ = −1 and μ = +1 with very mild
-η-dependence.  The "step" that Stage 1's NN had to learn has been absorbed
-by c; the residual latent structure is near-Gaussian within each mode.
+The conditional pushforwards flatten — η-dependence collapses, the mode
+shift is carried entirely by μ_center.  EBE η stops splitting by mode.
 
-Same machinery, but now the model is structurally simpler because the
-covariate is doing the work that the latent transformation was forced to do
-before.
-
-(Foreshadow for Day 2 afternoon: this is also the conceptual baseline for
-`DeepPumas.augment` — adding a covariate to absorb structure carried by η.
-Note though that `augment` does not refit the pushforward, so it cannot
-recover this simplification on an already-fitted model.)
+Foreshadow (Day 2 afternoon): `DeepPumas.augment` is the post-hoc version
+of this — adding a covariate to a fitted model to absorb structure that
+η was carrying.  Augment doesn't refit the pushforward, though, so it can
+only shift η, not simplify the NN itself.
 =#
 
 
@@ -213,20 +179,8 @@ recover this simplification on an already-fitted model.)
 ## Stage 3 — Time-dependent pushforward: bridge to dynamical NLME
 ############################################################################################
 
-#=
-Finally we add time.  The NN now takes (t, η) and produces the mean of y(t).
-Different subjects follow different trajectories, encoded entirely through η.
-
-The point: the very same machinery — a neural network pushforward of η —
-produces a *different distribution at every time point*.  That is exactly
-what an NLME model is doing when the underlying dynamics depend on
-individualized parameters.
-
-Conceptually this is one step away from DeepNLME with explicit dynamics:
-instead of putting the NN directly on (t, η), DeepNLME puts the NN's output
-into the parameters of an ODE and lets the dynamics carry the temporal
-structure.
-=#
+# NN now takes (t, η) and outputs μ(t).  Same machinery as before, but the
+# marginal of NN(t, η) over η ~ N(0,1) now changes with t.
 
 truth_s3 = @model begin
   @param begin
@@ -250,7 +204,7 @@ plotgrid(pop_s3[1:12]; ylabel="y(t)")
 
 model_s3 = @model begin
   @param begin
-    NN ∈ MLPDomain(2, 10, 10, (1, identity); reg=L2(1e-3))
+    NN ∈ MLPDomain(2, 14, 14, (1, identity); reg=L2(1e-2))
     σ ∈ RealDomain(; lower=0., init=0.1)
   end
   @random η ~ Normal(0, 1)
@@ -266,18 +220,34 @@ fpm_s3 = fit(
   optim_options=(; iterations=300, time_limit=2*60),
 )
 
-# Per-subject predicted trajectories, coloured by EB η
-df_pred_s3 = DataFrame(predict(fpm_s3; obstimes=0:0.01:1))
-data(df_pred_s3) * mapping(:time, :y_ipred, color=:η, group=:id) * visual(Lines) |> draw
+# (a) Prior trajectories — sample η ~ N(0,1) and trace NN(t, η).
+nn3 = coef(fpm_s3).NN
+let
+    trange = collect(0:0.01:1)
+    df_traj = mapreduce(vcat, 1:50) do i
+        η = randn()
+        DataFrame(t = trange, μ = first.(nn3.(trange, η)), η = η, id = string(i))
+    end
+    data(df_traj) * mapping(:t, :μ; color=:η, group=:id) * visual(Lines) |> draw
+end
+
+# (b) Marginal of NN(t, η) at three fixed t — same NN, different distribution.
+let
+    nsamp = 5000
+    df_marg = mapreduce(vcat, [0.25, 0.5, 0.75]) do t
+        η = randn(nsamp)
+        DataFrame(t = "t = $t", μ = first.(nn3.(t, η)))
+    end
+    plt = data(df_marg) *
+          mapping(:μ; col=:t => sorter("t = 0.25", "t = 0.5", "t = 0.75")) *
+          AlgebraOfGraphics.density()
+    draw(plt; facet=(; linkyaxes=false))
+end
 
 #=
-Each subject's trajectory is a different curve through the (t, NN(t, η))
-surface.  The marginal distribution of y at any fixed t is the pushforward of
-N(0, 1) through NN(t, ⋅) — and that distribution's shape changes with t.
-
-This is the entire engine of NLME viewed as a transformation of latents:
-random effects + a (possibly time-dependent) pushforward = the marginal
-distribution we observe.  DeepNLME swaps "static t-dependent NN" for
-"ODE parameterized by NN(η)", but the conceptual story is the same.
+Bimodal at amplitude peaks, collapsing toward zero at the sine's zero crossing.
+Random effects + a (possibly time-dependent) pushforward = the marginal
+distribution we observe.  DeepNLME generalises this: replace NN(t, η) with
+an ODE parameterised by NN(η).
 =#
 
