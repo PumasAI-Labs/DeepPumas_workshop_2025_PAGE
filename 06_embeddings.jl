@@ -20,6 +20,8 @@ using Transformers
 using Transformers.HuggingFace
 using Transformers.TextEncoders
 using TSne
+using MultivariateStats
+using StatsBase
 
 
 # Load the patient data
@@ -93,7 +95,7 @@ scatter(x_pca)
 
 begin
     plt = scatter(x_pca)
-    id = 6
+    id = 1
     Makie.text!(
         -0.3,  # Tweak the x position
         -0.4,   # Tweak the y position

@@ -1,6 +1,7 @@
 using DeepPumas
 using CairoMakie
 using Distributions
+using AlgebraOfGraphics
 using Random
 set_theme!(deep_light())
 set_mlp_backend(:simplechains)
