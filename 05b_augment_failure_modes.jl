@@ -236,17 +236,17 @@ vote equally with well-determined ones and flatten g(c).
 # --- FM1 redo with split-NN ----------------------------------------------------
 model_fm1_split = @model begin
   @param begin
-    NN_η   ∈ MLPDomain(1, 6, 6, (1, identity, false); reg=L2(1e-1))
+    NN_η   ∈ MLPDomain(1, 6, 6, (1, identity, false); reg=L2(1e-8))
     NN_cov ∈ MLPDomain(1, 4,    (1, identity, false); reg=L2(1e-1))
     σ ∈ RealDomain(; lower=0., init=0.2)
   end
   @random η ~ Normal(0, 1)
   @covariates μ_center
-  @pre μ = NN_η(η)[1] + NN_cov(μ_center)[1]
+  @pre μ = NN_η(η + NN_cov(μ_center)[1])[1] # Mathematically similar to what we do in `augment`
   @derived y ~ @. Normal(μ, σ)
 end
 
-fpm_fm1_split = fit(model_fm1_split, pop_fm1, init_params(model_fm1_split), MAP(FOCE());
+fpm_fm1_split = fit(model_fm1_split, pop_fm1, sample_params(model_fm1_split), MAP(FOCE());
                     optim_options=(; iterations=300))
 
 # Conditional marginal at c = ±1 — dead mode should be gone.
@@ -256,8 +256,8 @@ let
     nsamp = 20_000
     ηs = randn(nsamp)
 
-    μ_split_m1 = first.(nn_η_fit.(ηs)) .+ nn_cov_fit(-1.0)[1]
-    μ_split_p1 = first.(nn_η_fit.(ηs)) .+ nn_cov_fit(+1.0)[1]
+    μ_split_m1 = first.(nn_η_fit.(ηs .+ (nn_cov_fit(-1.0)[1])))
+    μ_split_p1 = first.(nn_η_fit.(ηs .+ (nn_cov_fit(+1.0)[1])))
     μ_truth_m1 = -1 .+ p_truth_fm1.ω .* randn(nsamp)
     μ_truth_p1 = +1 .+ p_truth_fm1.ω .* randn(nsamp)
 
@@ -267,7 +267,7 @@ let
         μ      = vcat(μ_split_m1, μ_split_p1, μ_truth_m1, μ_truth_p1),
         c      = vcat(fill("c = -1", nsamp), fill("c = +1", nsamp),
                       fill("c = -1", nsamp), fill("c = +1", nsamp)),
-        source = vcat(fill("split-NN: NN_η(η) + NN_cov(c)", 2*nsamp),
+        source = vcat(fill("split-NN: NN_η(η + NN_cov(c))", 2*nsamp),
                       fill("truth conditional",             2*nsamp)),
     )
     data(df) * mapping(:μ; color=:source, row=:c) *

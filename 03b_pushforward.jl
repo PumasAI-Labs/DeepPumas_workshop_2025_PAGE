@@ -59,7 +59,7 @@ hist(y_data_s1; bins=40, axis=(; xlabel="y", ylabel="count",
 # The fit model: η ~ N(0, 1), with an NN mapping η → mean of y.
 model_s1 = @model begin
   @param begin
-    NN ∈ MLPDomain(1, 8, 8, (1, identity); reg=L2(1e-2))
+    NN ∈ MLPDomain(1, 3, 3, (1, identity); reg=L2(1e-2))
     σ ∈ RealDomain(; lower=0., init=0.2)
   end
   @random η ~ Normal(0, 1)
@@ -84,15 +84,17 @@ lines(-3:0.01:3, η -> first(nn(η));
       axis=(; xlabel="η", ylabel="NN(η)", title="Learned pushforward NN(η)"))
 
 # (b) fitted NN(η) vs the truth's μ distribution (both noiseless subject means).
-nsamp   = 10_000
-μ_model = first.(nn.(randn(nsamp)))
-μ_truth = rand((-1.0, 1.0), nsamp) .+ p_truth.ω .* randn(nsamp)   # matches truth ω=0.2
-df_μ = DataFrame(
-  μ      = vcat(μ_model, μ_truth),
-  source = vcat(fill("fitted NN(η)",      nsamp),
-                fill("truth pushforward", nsamp)),
-)
-data(df_μ) * mapping(:μ, color=:source) * AlgebraOfGraphics.density() |> draw
+begin
+  nsamp   = 10_000
+  μ_model = first.(nn.(randn(nsamp)))
+  μ_truth = rand((-1.0, 1.0), nsamp) .+ p_truth.ω .* randn(nsamp)   # matches truth ω=0.2
+  df_μ = DataFrame(
+    μ      = vcat(μ_model, μ_truth),
+    source = vcat(fill("NN(η) pushforward",      nsamp),
+                  fill("truth pushforward", nsamp)),
+  )
+  data(df_μ) * mapping(:μ, color=:source) * AlgebraOfGraphics.density() |> draw
+end
 
 # (c) empirical-Bayes η distribution, coloured by the (hidden) true mode
 df_pred = DataFrame(predict(fpm_s1))
@@ -115,7 +117,7 @@ That's the pushforward turning N(0,1) into the bimodal marginal.
 
 model_s2 = @model begin
   @param begin
-    NN ∈ MLPDomain(2, 8, 8, (1, identity); reg=L2(1e0))
+    NN ∈ MLPDomain(2, 3, 3, (1, identity); reg=L2(1e0))
     σ ∈ RealDomain(; lower=0., init=0.2)
   end
   @covariates μ_center
@@ -134,29 +136,33 @@ fpm_s2 = fit(
 
 # NN(η, c=0) vs NN(η, c=1) — two conditional pushforwards
 nn2 = coef(fpm_s2).NN
-fig = lines(-3:0.01:3, η -> first(nn2(η, 0));
-            label="c = 0",
-            axis=(; xlabel="η", ylabel="NN(η, c)",
-                    title="Stage 2 — pushforward conditioned on c"))
-lines!(-3:0.01:3, η -> first(nn2(η, 1)); label="c = 1")
-axislegend()
-fig
+begin
+  fig = lines(-3:0.01:3, η -> first(nn2(η, -1));
+              label="μ_center = -1",
+              axis=(; xlabel="η", ylabel="NN(η, c)",
+                      title="Stage 2 — pushforward conditioned on c"))
+  lines!(-3:0.01:3, η -> first(nn2(η, 1)); label="μ_center = 1")
+  axislegend()
+  fig
+end
 
 
 
 # (b) fitted NN(η | μ_center) vs the truth's μ distribution, faceted by mode.
-nsamp   = 10_000
-μ_sample = rand([-1, 1], nsamp)
-μ_model = first.(nn2.(randn(nsamp), μ_sample))
-μ_truth = μ_sample .+ p_truth.ω .* randn(nsamp)   # matches truth ω=0.2
-df_μ = DataFrame(
-  μ      = vcat(μ_model, μ_truth),
-  c      = Symbol.(vcat(μ_sample, μ_sample)),
-  source = vcat(fill("fitted NN(η | c)",      nsamp),
-                fill("truth pushforward", nsamp)),
-)
+begin
+  nsamp   = 10_000
+  μ_sample = rand([-1, 1], nsamp)
+  μ_model = first.(nn2.(randn(nsamp), μ_sample))
+  μ_truth = μ_sample .+ p_truth.ω .* randn(nsamp)   # matches truth ω=0.2
+  df_μ = DataFrame(
+    μ      = vcat(μ_model, μ_truth),
+    c      = Symbol.(vcat(μ_sample, μ_sample)),
+    source = vcat(fill("fitted NN(η | c)",      nsamp),
+                  fill("truth pushforward", nsamp)),
+  )
 
-data(df_μ) * mapping(:μ; color=:source, row=:c) * AlgebraOfGraphics.density() |> draw
+  data(df_μ) * mapping(:μ; color=:source, row=:c) * AlgebraOfGraphics.density() |> draw
+end
 
 # (c) EBE η — should now overlap across modes, since μ_center carries the
 # structure that η carried in Stage 1.  Compare to Stage 1's panel (c).
