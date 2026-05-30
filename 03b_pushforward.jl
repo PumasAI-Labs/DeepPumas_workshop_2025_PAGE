@@ -259,3 +259,147 @@ distribution we observe.  DeepNLME generalises this: replace NN(t, η) with
 an ODE parameterised by NN(η).
 =#
 
+
+############################################################################################
+## Stage 4 (optional) — One random effect for two-dimensional heterogeneity
+##
+## Stages 1–3 matched the model's latent dimension to the truth.  Here the truth varies along
+## *two* independent directions but we hand the model only one η.  The interesting thing is
+## not that it breaks — it doesn't — but what it does with the constraint.
+############################################################################################
+
+# Truth: a saturating time-course with two independent BSV dimensions.
+#   c1 → the height,   c2 → the half-saturation time.
+# These move a subject's curve in genuinely different ways; no single number stands in
+# for both.
+Random.seed!(8)
+
+truth_s4 = @model begin
+  @param σ ∈ RealDomain(; lower=0., init=0.05)
+  @random begin
+    c1 ~ Uniform(0.5, 1.5)
+    c2 ~ LogNormal(-2, 1.0)
+  end
+  @pre X = c1 * t / (t + c2)
+  @derived Y ~ @. Normal(X, σ)
+end
+
+sims_s4     = simobs(truth_s4, [Subject(; id=i) for i in 1:200], (; σ=0.05); obstimes=0:0.05:1)
+trainpop_s4 = Subject.(sims_s4[1:100])
+testpop_s4  = Subject.(sims_s4[101:end])
+
+plotgrid(trainpop_s4[1:12]; ylabel="Y")
+
+
+# Matched capacity: two random effects, one for each direction the data varies along.
+model_s4_2d = @model begin
+  @param begin
+    NN ∈ MLPDomain(3, 10, 10, (1, identity); reg=L2(1.))    # inputs: t + 2 η
+    σ ∈ RealDomain(; lower=0.)
+  end
+  @random η ~ MvNormal(2, 0.1)
+  @pre X = NN(t, η)[1]
+  @derived Y ~ @. Normal(X, σ)
+end
+
+# Constrained capacity: a single random effect for two-dimensional heterogeneity.
+model_s4_1d = @model begin
+  @param begin
+    NN ∈ MLPDomain(2, 8, 8, (1, identity); reg=L2(5.))    # inputs: t + 1 η
+    σ ∈ RealDomain(; lower=0.)
+  end
+  @random η ~ Normal(0, 1)
+  @pre X = NN(t, η)[1]
+  @derived Y ~ @. Normal(X, σ)
+end
+
+# If the one-η model lands in a poor optimum, restart it from `sample_params(model_s4_1d)`.
+fpm_s4_2d = fit(model_s4_2d, trainpop_s4, init_params(model_s4_2d), MAP(FOCE());
+                optim_options=(; iterations=300))
+# Individual fits on held-out subjects.
+# Two η → the ipreds track each subject, as in Stages 1–3.
+plotgrid(predict(fpm_s4_2d, testpop_s4[1:12]; obstimes=0:0.01:1); ylabel="Y — 2 η (matched)")
+
+fpm_s4_1d = fit(model_s4_1d, trainpop_s4, init_params(model_s4_1d), MAP(FOCE());
+                optim_options=(; iterations=300))
+# One η → still good, give or take a few spots.  It did not drop a dimension; it found the
+# most informative one and rode it.
+plotgrid(predict(fpm_s4_1d, testpop_s4[1:12]; obstimes=0:0.01:1); ylabel="Y — 1 η (constrained)")
+
+# Held-out log-likelihood puts a number on the gap.
+@show loglikelihood(fpm_s4_2d.model, testpop_s4, coef(fpm_s4_2d), FOCE())
+@show loglikelihood(fpm_s4_1d.model, testpop_s4, coef(fpm_s4_1d), FOCE())
+
+
+# The same failure as a pushforward, in the idiom of Stages 1–2.
+# Embed each subject by its mean response at an early and a late time — two axes that load
+# differently on (c1, c2) — and sample each model's prior pushforward of η.
+begin
+    t_a, t_b = 0.1, 1.0
+    nsamp = 4000
+    nn2 = coef(fpm_s4_2d).NN
+    nn1 = coef(fpm_s4_1d).NN
+
+    # Truth: draw the latents, map them noiselessly through the structural model.
+    c1 = rand(Uniform(0.5, 1.5), nsamp)
+    c2 = rand(LogNormal(-2, 1.0), nsamp)
+    Xt(t) = c1 .* t ./ (t .+ c2)
+
+    # 2-η model: a 2-D prior fills the cloud.
+    H2 = 0.1 .* randn(2, nsamp)
+    μ2_a = [first(nn2(t_a, H2[:, i])) for i in 1:nsamp]
+    μ2_b = [first(nn2(t_b, H2[:, i])) for i in 1:nsamp]
+
+    # 1-η model: a 1-D prior can only trace a curve through it.
+    h1 = randn(nsamp)
+    μ1_a = first.(nn1.(t_a, h1))
+    μ1_b = first.(nn1.(t_b, h1))
+
+    df_s4 = DataFrame(
+        early  = vcat(Xt(t_a), μ2_a, μ1_a),
+        late   = vcat(Xt(t_b), μ2_b, μ1_b),
+        source = vcat(fill("truth", nsamp),
+                      fill("2 η (matched)", nsamp),
+                      fill("1 η (constrained)", nsamp)),
+    )
+end
+
+# (a) The 1-D pushforward marginals — the usual view from Stages 1–2.
+# Late time ≈ the dominant direction of variability: all three agree, one η reproduces it.
+data(df_s4) * mapping(:late => "μ at t = $t_b"; color=:source) *
+  AlgebraOfGraphics.density() |> draw
+
+# Early time loads on the direction one η could not also keep: the 1-η density is a bit too
+# peaked — under-dispersed relative to truth.  That missing spread is the variance the cutoff
+# trades away.
+data(df_s4) * mapping(:early => "μ at t = $t_a"; color=:source) *
+  AlgebraOfGraphics.density() |> draw
+
+# (b) The joint of the two times — the manifold view.  Truth fills a 2-D cloud; the one-η
+#     pushforward threads a single 1-D curve through it, riding the principal direction of the
+#     variability.  The only thing one η can't add is spread orthogonal to that curve.
+data(df_s4) *
+  mapping(:early => "μ at t = $t_a", :late => "μ at t = $t_b"; color=:source) *
+  visual(Scatter; markersize=4, alpha=0.35, strokewidth=0) |> draw
+
+#=
+The one-η model does not fail here — and it never had to choose between c1 and c2.  Fit by
+maximum likelihood, it found the single direction carrying the most recoverable information
+and rode it: a 1-D nonlinear manifold threaded through 2-D heterogeneity.  The individual fits
+stay good, the late-time (dominant) marginal is reproduced while the early-time one is somewhat
+under-dispersed, and the joint shows how tightly that one manifold threads the cloud — the
+truth's two times correlate ≈ 0.82, the one-η pushforward
+≈ 0.99.  All it gives up is the spread orthogonal to the manifold, modest here.
+
+It's a PCA cutoff in disguise: take fewer random effects than the data's heterogeneity and you
+trade explained variance for simplicity, but you keep the dominant sources of variability.  The
+one twist is that "dominant" is ranked by recoverable *information* — through the structural and
+observation model — not by latent variance, so the kept axis is not the PC of (c1, c2).  Toggle
+`obstimes` toward mostly-early or mostly-late, re-fit, and the kept direction shifts, though the
+latent distribution never moved.  Easier to see than to say.
+
+That makes it `03a`'s "best compression into the channel we chose", now as a count of dimensions.
+DeepNLME turns that count into an explicit dial — and even one well-used effect keeps the
+dominant variability; `04_DeepNLME.jl` carries it into the dynamics.
+=#
+

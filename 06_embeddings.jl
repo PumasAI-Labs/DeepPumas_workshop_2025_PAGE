@@ -9,7 +9,6 @@ using CairoMakie
 using CSV
 using DataFrames
 using DataFramesMeta
-using DeepPumas
 using Flux
 using PumasPlots
 using Latexify
@@ -21,7 +20,6 @@ using Transformers.HuggingFace
 using Transformers.TextEncoders
 using TSne
 using MultivariateStats
-using StatsBase
 
 
 # Load the patient data

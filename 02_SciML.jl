@@ -153,7 +153,7 @@ plotgrid!(
 
 neural_ode_model = @model begin
   @param begin
-    mlp ∈ MLPDomain(3, 6, 6, (3, identity); reg=L2(1.0))    # neural network with 2 inputs and 1 output
+    mlp ∈ MLPDomain(3, 6, 6, (3, identity); reg=L2(1.0))    # neural network with 3 inputs (the 3 states) and 3 outputs (their derivatives)
     R₀ ∈ RealDomain(; lower=0)
     σ ∈ RealDomain(; lower=0)                       # residual error
   end
@@ -239,7 +239,7 @@ plotgrid!(
 
 ude_model_knowledge = @model begin
   @param begin
-    mlp ∈ MLPDomain(1, 6, 6, (1, identity); reg=L2(1))    # neural network with 2 inputs and 1 output
+    mlp ∈ MLPDomain(1, 6, 6, (1, identity); reg=L2(1))    # neural network with 1 input (Central/Vc) and 1 output
     tvKa ∈ RealDomain(; lower=0)                    # typical value of absorption rate constant
     tvCL ∈ RealDomain(; lower=0)
     tvVc ∈ RealDomain(; lower=0)

@@ -155,7 +155,7 @@ overfit_nn =
 ŷ_overfit = overfit_nn(x)  # clarification on the term "overfitting"
 
 fig = scatter(vec(x), vec(y); axis = (xlabel = "x", ylabel = "y"), label = "data");
-scatter!(vec(x), vec(ŷ_underfit), label = "prediction (5 iterations)");
+scatter!(vec(x), vec(ŷ_underfit), label = "prediction (2 iterations)");
 scatter!(vec(x), vec(ŷ), label = "prediction (50 iterations)");
 scatter!(vec(x), vec(ŷ_overfit), label = "prediction (1000 iterations)");
 lines!(-1..1, true_function; color = :gray, label = "true");
