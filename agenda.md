@@ -48,10 +48,3 @@ Pattern adapted from PAGE 2024 (which ran 08:00–17:00): same block structure, 
 |---|---|---|---|
 | Day 1 | 10:30 – 10:45 | 12:30 – 13:30 | 15:00 – 15:15 |
 | Day 2 | 10:30 – 10:45 | 12:30 – 13:30 | 15:00 – 15:15 |
-
-## Open items
-
-- Confirm exact workshop dates with PAGE 2026 organisers.
-- Confirm Lucas's full name and faculty bio.
-- Decide which application demo Lucas runs in the Day-2 afternoon slot.
-- Send coffee-break timings to the venue (Ankit asked for these end-of-week, per #2026-06-conference-page on 2026-05-12).
