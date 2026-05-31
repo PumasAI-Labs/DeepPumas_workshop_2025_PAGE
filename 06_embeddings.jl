@@ -9,17 +9,20 @@ using CairoMakie
 using CSV
 using DataFrames
 using DataFramesMeta
-using Flux
 using PumasPlots
 using Latexify
 using Random
 using StatsBase
 using Tables
-using Transformers
-using Transformers.HuggingFace
-using Transformers.TextEncoders
 using TSne
 using MultivariateStats
+
+using ONNXRunTime
+using HuggingFaceTokenizers
+using Downloads
+using LinearAlgebra
+
+set_mlp_backend(:simplechains)
 
 
 # Load the patient data
@@ -33,23 +36,42 @@ pop = read_pumas(
 
 train_pop = pop[1:100]
 test_pop = pop[101:200]
+scores = [s.covariates(0.).Score for s in train_pop]   # wellness score per training subject
 
 plotgrid(train_pop[1:6]; observation = :yPK)
 plotgrid(train_pop[1:6]; observation = :yPD)
 
-get_text(s::Pumas.Subject) = s.covariates().Description
+get_text(s::Pumas.Subject) = s.covariates(0.).Description
 get_text(train_pop[1])
 get_text(train_pop[2])
 
 
-### Load the Embedding Model
-# Load the pre-trained embedding model from Hugging Face
-loaded_model = hgf"avsolatorio/NoInstruct-small-Embedding-v0"
+### Load the embedding model: all-MiniLM-L6-v2 (384-dim sentence embeddings).
+# Download the ONNX export once (cached under assets/, ~90 MB) and load it with
+# the ONNXRunTime C runtime; the matching tokenizer comes from HuggingFaceTokenizers.
+const EMB_REPO = "sentence-transformers/all-MiniLM-L6-v2"
+const EMB_ONNX = joinpath(@__DIR__(), "assets", "all-MiniLM-L6-v2.onnx")
+if !isfile(EMB_ONNX)
+    mkpath(dirname(EMB_ONNX))
+    Downloads.download("https://huggingface.co/$(EMB_REPO)/resolve/main/onnx/model.onnx", EMB_ONNX)
+end
+const emb_model = ONNXRunTime.load_inference(EMB_ONNX)
+const emb_tokenizer = HuggingFaceTokenizers.from_pretrained(HuggingFaceTokenizers.Tokenizer, EMB_REPO)
 
-const encoder = loaded_model[1]
-const llm = loaded_model[2]
-
-# Define how to get a patient's embedding
+# A patient's embedding: tokenize the Description, run the transformer, then
+# mean-pool the token vectors and L2-normalize → one 384-vector per patient.
+function get_embedding(context::AbstractString)
+    ids = HuggingFaceTokenizers.encode(emb_tokenizer, context).ids
+    L = length(ids)
+    out = emb_model(Dict(
+        "input_ids"      => reshape(Int64.(ids), 1, L),
+        "attention_mask" => reshape(ones(Int64, L), 1, L),
+        "token_type_ids" => reshape(zeros(Int64, L), 1, L),
+    ))
+    tok_emb = out["last_hidden_state"]               # (1, L, 384)
+    pooled = vec(sum(@view(tok_emb[1, :, :]); dims = 1)) ./ L
+    return pooled ./ norm(pooled)
+end
 get_embedding(subj::DeepPumas.Pumas.Subject) = get_embedding(subj.covariates(0).Description)
 get_embedding(pop::DeepPumas.Pumas.Population) = mapreduce(get_embedding, hcat, pop)
 function get_embedding(context)
