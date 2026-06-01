@@ -30,7 +30,7 @@ datamodel = @model begin
   end
   @covariates R_eq c1 c2 c3 c4 c5 c6
   @pre begin
-    Smax = tvSmax * exp(η[1]) + 3 * c1 / (12.0 + c1) # exp(η[3] + exp(c3) / (1 + exp(c3)) + 0.05 * c4)
+    Smax = tvSmax * exp(η[1] + 3 * c1 / (12.0 + c1)) # exp(η[3] + exp(c3) / (1 + exp(c3)) + 0.05 * c4)
     SC50 = tvSC50 * exp(η[2] + 0.2 * (c2 / 20)^0.75)
     Ka = tvKa * exp(η[3] + 0.3 * c3 * c4)
     Vc = tvVc * exp(η[4] + 0.3 * c3)
@@ -116,8 +116,7 @@ model = @model begin
     # Define a multi-layer perceptron (a neural network) which maps from 5 inputs
     # (2 state variables + 3 individual parameters) to a single output.
     # Apply L2 regularization (equivalent to a Normal prior).
-    # NN ∈ MLPDomain(5, 6, 5, (1, identity); reg=L2(1.0))
-      NN ∈ MLPDomain(5, 7, 7, (1, identity); reg = L2(1.0))
+    NN ∈ MLPDomain(5, 6, 5, (1, identity); reg=L2(1.0))
     tvKa ∈ RealDomain(; lower=0)
     tvCL ∈ RealDomain(; lower=0)
     tvVc ∈ RealDomain(; lower=0)
