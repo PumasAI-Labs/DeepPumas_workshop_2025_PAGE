@@ -10,8 +10,8 @@ using CSV
 using DataFrames
 using DataFramesMeta
 using PumasPlots
-using Latexify
 using Random
+using StableRNGs
 using StatsBase
 using Tables
 using TSne
@@ -25,12 +25,17 @@ using LinearAlgebra
 set_mlp_backend(:simplechains)
 
 
-# Load the patient data
-patient_data = CSV.read(@__DIR__() * "/data_text.csv", DataFrame);
+############################################################################################
+## Load the data: a PK time series (yPK) plus each patient's free-text Description and a
+## wellness Score. We jump straight into the modelling — the data-generating model that
+## produced data_pk.csv lives near the bottom of this script.
+############################################################################################
+
+patient_data = CSV.read(@__DIR__() * "/data_pk.csv", DataFrame)
 
 pop = read_pumas(
-    patient_data; 
-    observations = [:yPK, :yPD],
+    patient_data;
+    observations = [:yPK],
     covariates = [:Description, :Score],
 )
 
@@ -39,7 +44,6 @@ test_pop = pop[101:200]
 scores = [s.covariates(0.).Score for s in train_pop]   # wellness score per training subject
 
 plotgrid(train_pop[1:6]; observation = :yPK)
-plotgrid(train_pop[1:6]; observation = :yPD)
 
 get_text(s::Pumas.Subject) = s.covariates(0.).Description
 get_text(train_pop[1])
@@ -74,229 +78,230 @@ function get_embedding(context::AbstractString)
 end
 get_embedding(subj::DeepPumas.Pumas.Subject) = get_embedding(subj.covariates(0).Description)
 get_embedding(pop::DeepPumas.Pumas.Population) = mapreduce(get_embedding, hcat, pop)
-function get_embedding(context)
-    enc = encode(encoder, context)
-    out = llm(enc)
-    return out.pooled
-end
 
 # Get the embeddings for all patients and put it in a matrix
 X_train = mapreduce(get_embedding, hcat, train_pop)
 X_test = mapreduce(get_embedding, hcat, test_pop)
 
 
-
-
 ## t-SNE is a stochastic dimension reduction technique for visualizing spatial patterns of the embeddings. You'll get different result each time you run this.
 Y = tsne(X_train', 2, 0, 10000, 8.0) # 2D t-SNE embedding of the training data
-scatter(Y)
-
+scatter(Y; color = scores)
 
 begin
-    plt = scatter(Y)
+    plt = scatter(Y; color = scores)
     id = 1
     Makie.text!(
         -100,  # Tweak the x position
         -1000,   # Tweak the y position
-        text=get_text(train_pop[id]),
-        fontsize=12,
-        word_wrap_width=200,
-        offset=(5,5),
+        text = get_text(train_pop[id]),
+        fontsize = 12,
+        word_wrap_width = 200,
+        offset = (5, 5),
     )
-    scatter!(Y[id, 1], Y[id, 2]; color=Cycled(2), markersize=25, strokewidth=2)
+    scatter!(Y[id, 1], Y[id, 2]; color = Cycled(2), markersize = 25, strokewidth = 2)
     plt
 end
 
+
 ## We could also do a PCA but that might miss nonlinear patterns.
-pca = fit(PCA, X_train, maxoutdim=2)
+pca = fit(PCA, X_train, maxoutdim = 2)
 x_pca = predict(pca, X_train)
 
-scatter(x_pca)
-
 begin
-    plt = scatter(x_pca)
+    plt = scatter(x_pca, color = scores)
     id = 1
     Makie.text!(
         -0.3,  # Tweak the x position
         -0.4,   # Tweak the y position
-        text=get_text(train_pop[id]),
-        fontsize=12,
-        word_wrap_width=200,
-        offset=(5,5),
+        text = get_text(train_pop[id]),
+        fontsize = 12,
+        word_wrap_width = 200,
+        offset = (5, 5),
     )
-    s = scatter!(x_pca[1, id], x_pca[2, id]; color=Cycled(2), markersize=25, strokewidth=2)
+    scatter!(x_pca[1, id], x_pca[2, id]; color = Cycled(2), markersize = 25, strokewidth = 2)
     plt
 end
 
 
 ## Conclusion:
-# The patient "wellness" quantification is a central component to explaining between subject variability in this data set. 
+# The patient "wellness" quantification is a central component to explaining between subject variability in this data set.
 
 
 # Let's go to the NLME modelling then!
 
 
-embedding_df = DataFrame(id = getfield.(train_pop, :id), embeddings = get_embedding.(train_pop))
-test_embedding_df = DataFrame(id = getfield.(test_pop, :id), embeddings = get_embedding.(test_pop))
+# Workshop shortcut for speed: project the 384-dim embeddings onto their top-10
+# principal components (PCA fit on TRAIN only, then applied to test). ~95% of the
+# wellness signal survives at a fraction of the width, so the covariate NN shrinks
+# ~10× and the joint fit is much lighter. Standardize the scores so the NN sees
+# inputs near unit scale.
+pca10 = fit(PCA, X_train; maxoutdim = 10)
+z_train = predict(pca10, X_train)
+pc_μ, pc_σ = mean(z_train; dims = 2), std(z_train; dims = 2)
+pcs_train = (z_train .- pc_μ) ./ pc_σ
+pcs_test  = (predict(pca10, X_test) .- pc_μ) ./ pc_σ
+
+embedding_df = DataFrame(
+    id = getfield.(train_pop, :id),
+    embeddings = get_embedding.(train_pop),
+    pcs = [pcs_train[:, i] for i in axes(pcs_train, 2)],
+)
+test_embedding_df = DataFrame(
+    id = getfield.(test_pop, :id),
+    embeddings = get_embedding.(test_pop),
+    pcs = [pcs_test[:, i] for i in axes(pcs_test, 2)],
+)
 
 pop_embeddings = read_pumas(
-    innerjoin(patient_data, embedding_df; on=:id);
-    observations = [:yPK, :yPD],
-    covariates = [:Description, :Score, :embeddings],
+    innerjoin(patient_data, embedding_df; on = :id);
+    observations = [:yPK],
+    covariates = [:Description, :Score, :embeddings, :pcs],
 )
 
 test_pop_embeddings = read_pumas(
-    innerjoin(patient_data, test_embedding_df; on=:id);
-    observations = [:yPK, :yPD],
-    covariates = [:Description, :Score, :embeddings],
+    innerjoin(patient_data, test_embedding_df; on = :id);
+    observations = [:yPK],
+    covariates = [:Description, :Score, :embeddings, :pcs],
 )
 
 
-model = @model begin
+############################################################################################
+## Base model — the same PK structure, but with NO covariate. Between-subject variability
+## (including the Score-driven clearance effect) is soaked up by the random effects.
+############################################################################################
+
+base_model = @model begin
   @param begin
-    NN ∈ MLPDomain(5, 6, 5, (1, identity); reg=L2(1.0))
-    tvKa ∈ RealDomain(; lower=0)
-    tvCL ∈ RealDomain(; lower=0)
-    tvVc ∈ RealDomain(; lower=0)
-    tvR₀ ∈ RealDomain(; lower=0)
-    ωR₀ ∈ RealDomain(; lower=0)
-    Ω ∈ PDiagDomain(2)
-    Ω_nn ∈ PDiagDomain(3)
-    σ ∈ RealDomain(; lower=0)
-    σ_pk ∈ RealDomain(; lower=0)
+    tvKa   ∈ RealDomain(; lower = 0, init = 1.0)
+    tvVc   ∈ RealDomain(; lower = 0, init = 5.0)
+    tvVmax ∈ RealDomain(; lower = 0, init = 40.0)
+    tvKm   ∈ RealDomain(; lower = 0, init = 3.0)
+    Ω      ∈ PDiagDomain(2)
+    σ      ∈ RealDomain(; lower = 0, init = 0.3)
   end
-  @random begin
-    η ~ MvNormal(Ω)
-    η_nn ~ MvNormal(Ω_nn)
-  end
+  @random η ~ MvNormal(Ω)
   @pre begin
-    Ka = tvKa * exp(η[1])
-    Vc = tvVc * exp(η[2])
-    CL = tvCL
-    R₀ = tvR₀ * exp(10 * ωR₀ * η_nn[1])
-    iNN = fix(NN, η_nn)
-  end
-  @init begin
-    R = R₀
+    Ka   = tvKa
+    Vc   = tvVc   * exp(η[2])
+    Vmax = tvVmax * exp(η[1])
+    Km   = tvKm
   end
   @dynamics begin
-    Depot' = -Ka * Depot
-    Central' = Ka * Depot - (CL / Vc) * Central
-    R' = iNN(Central / Vc, R)[1]
+    Depot'   = -Ka * Depot
+    Central' =  Ka * Depot - Vmax * (Central / Vc) / (Km + Central / Vc)
   end
   @derived begin
-    yPK ~ @. Normal(Central/Vc, σ_pk)
-    yPD ~ @. Normal(R, σ)
+    yPK ~ @. Normal(Central / Vc, σ)
   end
 end
 
-fpm = fit(
-  model,
-  pop_embeddings,
-  init_params(model),
-  MAP(FOCE());
-  optim_options=(; iterations = 300),
-  constantcoef = (; Ω_nn = I(3))
-)
-
-target = preprocess(fpm; covs = [:embeddings])
-nn = MLPDomain(numinputs(target), 55, 40, (numoutputs(target), identity); backend=:simplechains, act=tanh, reg=L2(5))
-fnn = fit(nn, target; optim_options = (; loss = DeepPumas.l2), training_fraction=1.0)
-
-nn = MLPDomain(numinputs(target), 9, 9, (numoutputs(target), identity); reg=L2(10.0))
-
-fnn = fit(nn, target; training_fraction=0.9, optim_options = (; loss = l2))
-
-augmented_fpm = augment(fpm, fnn)
-
-pred_embedding = simobs(fpm.model, test_pop_embeddings, coef(fpm), fnn(test_pop_embeddings))
-
-pred_augment =
-  predict(augmented_fpm.model, test_pop_embeddings, coef(augmented_fpm); obstimes=0:0.1:24);
-
-pred_original = predict(fpm, test_pop_embeddings; obstimes = 0:0.1:24)
-plotgrid(pred_original[1:6]; ipred=false, pred=(; color=(:red, 0.2), label="No covariate pred"), observation=:yPD)
-plotgrid!(pred_augment[1:6]; ipred=false, pred=(; linestyle=:dash, label = "Embedding pred"), observation = :yPD)
+fpm = fit(base_model, pop_embeddings, init_params(base_model), MAP(FOCE());
+          optim_options = (; iterations = 300))
 
 
-### We actually have the data generating model here so we can compare.
+############################################################################################
+## Post-hoc covariate integration: fit an ML model from the embedding PCs to the random
+## effects, then use it to predict η for new patients from their text alone.
+############################################################################################
+
+target = preprocess(fpm; covs = [:pcs])
+nn = MLPDomain(numinputs(target), 16, (numoutputs(target), identity); reg = L2(1.0))
+fnn = fit(nn, target; optim_options = (; loss = l2), training_fraction = 0.8)
+
+# `augment` would fold `fnn` back into the model, but it re-marginalizes the whole ODE per
+# subject and is slow. A quicker alternative is to feed fnn's predicted random effects 
+# directly:
+# augmented_fpm = augment(fpm, fnn)
+pred_embedding = predict(base_model, test_pop_embeddings, coef(fpm),
+                         fnn(test_pop_embeddings); obstimes = 0:0.05:8)
+
+pred_original = predict(fpm, test_pop_embeddings; obstimes = 0:0.05:8)
+plotgrid(pred_original[1:6]; ipred = false, pred = (; color = (:red, 0.3), label = "No covariate pred"))
+plotgrid!(pred_embedding[1:6]; pred = false, ipred = (; linestyle = :dash, label = "Embedding pred"))
+
+
+############################################################################################
+## The data-generating model — and how data_pk.csv was produced.
+## 1-cmpt oral PK with Michaelis–Menten (nonlinear) clearance; a single observation (yPK).
+## The wellness Score adds to the η on Vmax, so clearance is what the text covariate explains.
+############################################################################################
 
 datamodel = @model begin
   @param begin
-      tvKa ∈ RealDomain()
-      tvVc ∈ RealDomain()
-      tvSmax ∈ RealDomain()
-      tvSC50 ∈ RealDomain()
-      tvKout ∈ RealDomain()
-      Kin ∈ RealDomain()
-      CL ∈ RealDomain()
-      n ∈ RealDomain()
-      Ω ∈ PDiagDomain(5)
-      σ_pk ∈ RealDomain()
-      σ_pd ∈ RealDomain()
+    tvKa   ∈ RealDomain(; lower = 0, init = 1.0)
+    tvVc   ∈ RealDomain(; lower = 0, init = 5.0)
+    tvVmax ∈ RealDomain(; lower = 0, init = 40.0)
+    tvKm   ∈ RealDomain(; lower = 0, init = 3.0)
+    Ω      ∈ PDiagDomain(2)
+    σ      ∈ RealDomain(; lower = 0, init = 0.3)
   end
   @random η ~ MvNormal(Ω)
   @covariates Score
   @pre begin
-      # s = (Score - 5) / 10
-      Smax = tvSmax * exp(η[1]) + 3 * Score / 5.
-      # Smax = tvSmax * exp((1-c) * η[1] + c * s) 
-      # SC50 = tvSC50 * exp(η[2] + 0.3 * (Score / 5)^0.75)
-      SC50 = tvSC50 * exp(η[2])
-      Ka = tvKa * exp(η[3] + 0.3 * (Score/5)^2 )
-      Vc = tvVc * exp(η[4])
-      Kout = tvKout * exp(η[5] + 0.5 * Score/5)
-  end
-  @init R = Kin / Kout
-  @vars begin
-      cp = abs(Central / Vc)
-      EFF = Smax * cp^n / (SC50^n + cp^n)
+    s    = (Score - 5) / 5
+    Ka   = tvKa
+    Vc   = tvVc   * exp(η[2])
+    Vmax = tvVmax * exp(η[1] + 0.6 * s)     # Score adds to the η on Vmax
+    Km   = tvKm
   end
   @dynamics begin
-      Depot' = -Ka * Depot
-      Central' = Ka * Depot - (CL / Vc) * Central
-      R' = Kin * (1 + EFF) - Kout * R
+    Depot'   = -Ka * Depot
+    Central' =  Ka * Depot - Vmax * (Central / Vc) / (Km + Central / Vc)
   end
   @derived begin
-      yPK ~ @. Normal(Central ./ Vc, σ_pk)
-      yPD ~ @. Normal(R, σ_pd)
+    yPK ~ @. Normal(Central / Vc, σ)
   end
 end
 
-data_params = (;
-  tvKa = 0.5,
-  tvVc = 1.0,
-  tvSmax = 0.9,
-  tvSC50 = 0.02,
-  tvKout = 1.2,
-  Kin = 1.2,
-  CL = 1.0,
-  n = 1.0,
-  Ω = Diagonal(fill(1e-2, 5)),
-  σ_pk = 3e-2,
-  σ_pd = 1e-1,
+data_params = (; tvKa = 1.0, tvVc = 5.0, tvVmax = 40.0, tvKm = 3.0,
+                 Ω = Diagonal([0.1, 0.1]), σ = 0.3)
+
+# data_pk.csv ships with the repo. To regenerate it (e.g. after editing the DGM above),
+# delete the file and run this block, then re-run from the top.
+DATA_PK = @__DIR__() * "/data_pk.csv"
+if !isfile(DATA_PK)
+  src = unique(CSV.read(@__DIR__() * "/data_text.csv", DataFrame), :id)[1:200, :]
+  gen_subjects = [
+    Subject(; id = row.id, events = DosageRegimen(100.0; cmt = :Depot),
+            covariates = (; Score = row.Score, Description = row.Description))
+    for row in eachrow(src)
+  ]
+  gen_sims = simobs(datamodel, gen_subjects, data_params;
+                    obstimes = [0.25, 0.5, 1, 2, 4, 8], rng = StableRNG(1))
+  CSV.write(DATA_PK, DataFrame(gen_sims))
+end
+
+
+############################################################################################
+## Compare predictions: no-covariate baseline vs embedding-informed vs the true datamodel.
+############################################################################################
+
+pred_data = predict(datamodel, test_pop_embeddings, data_params; obstimes = 0:0.05:8)
+plotgrid!(pred_data; ipred = false, pred = (; label = "DataModel pred", color = :grey))
+
+# Each model's best prediction from covariate info: the no-covariate baseline can only use
+# its population prediction (yPK_pred); the embedding model uses the fnn-predicted random
+# effects (yPK_ipred); the true datamodel's population prediction already uses Score.
+function _pred_df(df, col, name)
+    d = dropmissing(df, [:yPK, col])
+    DataFrame(yPK = d.yPK, prediction = d[!, col], Model = name)
+end
+
+_df = vcat(
+    _pred_df(DataFrame(predict(fpm, test_pop_embeddings)), :yPK_pred, "Original"),
+    _pred_df(DataFrame(predict(base_model, test_pop_embeddings, coef(fpm), fnn(test_pop_embeddings))),
+             :yPK_ipred, "Embedding"),
+    _pred_df(DataFrame(predict(datamodel, test_pop_embeddings, data_params)), :yPK_pred, "DataGenerating"),
 )
-
-pred_data = predict(datamodel, test_pop_embeddings, data_params; obstimes = 0:0.1:25)
-plotgrid!(pred_data; ipred=false, pred = (; label = "DataModel pred", color=:grey), observation = :yPD)
-
-
-## Convert predictions to dataframes for some custom plotting
-df_pred_data = DataFrame(predict(datamodel, test_pop_embeddings, data_params))
-df_pred_original = DataFrame(predict(fpm, test_pop_embeddings))
-df_pred_embeddings = DataFrame(predict(augmented_fpm, test_pop_embeddings))
-
-
-_df = vcat(df_pred_embeddings, df_pred_original, df_pred_data; source = :Model => [:Embedding, :Original, :DataGenerating], cols=:union)
-__df = @by dropmissing(_df, :yPD) :Model :r2 = cor(:yPD, :yPD_pred).^2
+r2_df = @by _df :Model :r2 = cor(:yPK, :prediction) .^ 2
 
 begin
-  spec = data(_df) * mapping(:yPD_pred => "Population prediction", :yPD=> "PD Observation")
-  spec2 = data(hcat(__df, DataFrame(;x=fill(0.5,3), y=fill(3.,3)))) * mapping(:x, :y; text = :r2 => (x -> verbatim("r²: $(round(x, digits=2))" ))) * visual(Makie.Text)
-  layoutspec = mapping(col=:Model=>sorter(:Original, :Embedding, :DataGenerating))
-  fig = draw((spec + spec2)*layoutspec; axis = (; width=200, height=200))
-  Label(fig.figure[2,:], "Predicted yPD")
-  Label(fig.figure[:,0], "Observed yPD", rotation=pi/2)
+  spec = data(_df) * mapping(:prediction => "Prediction", :yPK => "PK observation")
+  spec2 = data(hcat(r2_df, DataFrame(; x = fill(2.0, 3), y = fill(15.0, 3)))) *
+          mapping(:x, :y; text = :r2 => (x -> verbatim("r²: $(round(x, digits=2))"))) * visual(Makie.Text)
+  layoutspec = mapping(col = :Model => sorter("Original", "Embedding", "DataGenerating"))
+  fig = draw((spec + spec2) * layoutspec; axis = (; width = 200, height = 200))
   Makie.resize_to_layout!(fig.figure)
   fig
 end

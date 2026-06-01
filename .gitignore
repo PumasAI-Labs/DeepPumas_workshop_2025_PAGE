@@ -1,3 +1,10 @@
 # Python env
 env/
 .venv/
+
+# Embedding model (downloaded on first run of 06) + tokenizer's conda env
+assets/*.onnx
+.CondaPkg/
+
+# Resolved per-machine against the local DeepPumas image
+Manifest.toml
