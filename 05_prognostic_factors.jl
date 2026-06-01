@@ -228,6 +228,8 @@ mean(abs, residuals)
 residuals_base = pred_residuals(pred_datamodel, pred)
 mean(abs, residuals_base)
 
+loglikelihood(fpm)
+loglikelihood(augmented_fpm)
 
 # We should now have gotten some improvement over not using covariates at all. However,
 # training covariate models well requires more data than fitting the neural networks
