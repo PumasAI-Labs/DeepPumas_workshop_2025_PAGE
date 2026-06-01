@@ -33,6 +33,22 @@ During the second day we will learn
 - How to leverage machine learning in NLME models - DeepNLME
 - How to use DeepPumas for data-driven discovery of predictive factors
 
+## Getting started
+
+Before the workshop, please set up your environment by following these steps:
+
+1. **Register** for an account at [juliahub.com](https://juliahub.com).
+2. **Log in** to JuliaHub with your new account.
+3. **Redeem your coupon.** Copy the coupon link from the email you received and paste it into your browser's address bar (this grants you access to DeepPumas for the workshop).
+4. **Launch DeepPumas.** When launching, choose **Custom config** and make sure you select at least **8 vCPUs**.
+5. **Clone this workshop repository.** The easiest way is from within VS Code: open the command palette (`Ctrl/Cmd+Shift+P`), run **`Git: Clone`**, and paste this repository's URL:
+
+   ```
+   https://github.com/PumasAI-Labs/DeepPumas_workshop_2026_PAGE.git
+   ```
+
+Once the repository is cloned, open it in VS Code on your DeepPumas instance and you are ready to follow along.
+
 ## Authors
 
 - Niklas Korsbo - <niklas@pumas.ai>
