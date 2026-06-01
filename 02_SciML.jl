@@ -1,7 +1,7 @@
 using DeepPumas
 using CairoMakie
 using StableRNGs
-set_theme!(deep_light())
+set_theme!(deep_light(); backgroundcolor=:white)
 set_mlp_backend(:staticflux)
 
 # 
@@ -58,7 +58,7 @@ data_model = @model begin
     R' = Kin * (1 + EFF) - Kout * R
   end
   @derived begin
-    Outcome ~ @. Normal(R, abs(R) * σ)
+    Outcome ~ @. Normal(R, σ)
   end
 end
 
@@ -164,7 +164,7 @@ neural_ode_model = @model begin
     R' = mlp(Depot, Central, R)[3]
   end
   @derived begin
-    Outcome ~ @. Normal(R, abs(R) * σ)
+    Outcome ~ @. Normal(R, σ)
   end
 end
 
@@ -213,11 +213,11 @@ ude_model = @model begin
     R' = mlp(Central / Vc, R)[1]
   end
   @derived begin
-    Outcome ~ @. Normal(R, abs(R) * σ)
+    Outcome ~ @. Normal(R, σ)
   end
 end
 
-fpm_ude = fit(ude_model, data_a, init_params(ude_model), MAP(NaivePooled()))
+fpm_ude = fit(ude_model, data_a, sample_params(ude_model), MAP(NaivePooled()))
 
 pred_a = predict(fpm_ude; obstimes=0:0.1:15);
 plotgrid(
@@ -262,7 +262,7 @@ ude_model_knowledge = @model begin
     R' = Kin * (1 + mlp_(Central / Vc)) - Kout * R
   end
   @derived begin
-    Outcome ~ @. Normal(R, abs(R) * σ)
+    Outcome ~ @. Normal(R, σ)
   end
 end
 
@@ -563,7 +563,7 @@ model_rescale = @model begin
     R' = mlp(Central/(Vc*1e4), R/1e4)[1] * 1e4
   end
   @derived begin
-    Outcome ~ @. Normal(R, abs(R) * σ)
+    Outcome ~ @. Normal(R, σ)
   end
 end
 
