@@ -1,5 +1,4 @@
 using Pkg
-Pkg.activate(@__DIR__)
 using Random
 using Distributions
 using DeepPumas
