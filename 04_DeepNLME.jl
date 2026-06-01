@@ -162,6 +162,10 @@ fpm = fit(
 )
 # Note that we only used 10 patients to train the model (unless you've tinkered with the code - something we encourage!).
 
+# using Serialization
+# serialize(@__DIR__() * "/assets/deep_nlme_fpm.jls", fpm)
+# fpm = deserialize(@__DIR__() * "/assets/deep_nlme_fpm.jls")
+
 pred_traindata = predict(fpm; obstimes = 0:0.1:24);
 plotgrid(pred_traindata; observation=:dv)
 
