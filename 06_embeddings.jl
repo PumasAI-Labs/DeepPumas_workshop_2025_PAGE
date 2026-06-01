@@ -85,15 +85,23 @@ X_test = mapreduce(get_embedding, hcat, test_pop)
 
 
 ## t-SNE is a stochastic dimension reduction technique for visualizing spatial patterns of the embeddings. You'll get different result each time you run this.
-Y = tsne(X_train', 2, 0, 10000, 8.0) # 2D t-SNE embedding of the training data
-scatter(Y; color = scores)
+Y = tsne(X_train', 2, 0, 10000, 25.0) # 2D t-SNE embedding of the training data
+begin
+    fig = Figure()
+    ax = Axis(fig[1, 1]; aspect = 1)
+    sc = scatter!(ax, Y; color = scores)
+    lims = (minimum(Y), maximum(Y))
+    limits!(ax, lims, lims)  # link the x and y axes to a shared range
+    Colorbar(fig[1, 2], sc; label = "Wellness score")
+    fig
+end
 
 begin
     plt = scatter(Y; color = scores)
     id = 1
     Makie.text!(
-        -100,  # Tweak the x position
-        -1000,   # Tweak the y position
+        -10,  # Tweak the x position
+        -50,   # Tweak the y position
         text = get_text(train_pop[id]),
         fontsize = 12,
         word_wrap_width = 200,
@@ -206,7 +214,7 @@ fpm = fit(base_model, pop_embeddings, init_params(base_model), MAP(FOCE());
 ############################################################################################
 
 target = preprocess(fpm; covs = [:pcs])
-nn = MLPDomain(numinputs(target), 16, (numoutputs(target), identity); reg = L2(1.0))
+nn = MLPDomain(numinputs(target), 16, (numoutputs(target), identity); reg = L2(3.0))
 fnn = fit(nn, target; optim_options = (; loss = l2), training_fraction = 0.8)
 
 # `augment` would fold `fnn` back into the model, but it re-marginalizes the whole ODE per
